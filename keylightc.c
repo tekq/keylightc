@@ -119,13 +119,13 @@ void *timer(){
 	struct timespec current_time;
 	struct timespec local_backlight_off_time;
 	
+	pthread_mutex_lock(&timer_mutex);
 	while(true){
 		// Lock and copy to ensure main thread doesn't touch backlight_off_time while we read it
 		pthread_mutex_lock(&backlight_off_time_mutex);
 		memcpy(&local_backlight_off_time,&backlight_off_time,sizeof(struct timespec));
 		pthread_mutex_unlock(&backlight_off_time_mutex);
 		
-		pthread_mutex_lock(&timer_mutex);
 		clock_gettime(CLOCK_MONOTONIC,&current_time);
 		if(desired_backlight_brightness==configured_backlight_brightness&&timespec_cmp(current_time,local_backlight_off_time)>=0){
 			// If current_time is greater than or equal to backlight_off_time, turn the backlight off
@@ -138,8 +138,10 @@ void *timer(){
 			// If current_time is less than backlight_off_time, wait until backlight_off_time
 			pthread_cond_timedwait(&timer_cond,&timer_mutex,&local_backlight_off_time);
 		}
-		pthread_mutex_unlock(&timer_mutex);
 		
+		// Allow the main thread to make desired_backlight_brightness changes while in the dimmer loop
+		// As long as no change to desired_backlight_brightness can be made outside either the pthread_cond_wait or the dimmer loop, we are safe from races
+		pthread_mutex_unlock(&timer_mutex);
 		while(current_backlight_brightness!=desired_backlight_brightness){
 			if(current_backlight_brightness>desired_backlight_brightness){
 				current_backlight_brightness--;
@@ -149,6 +151,11 @@ void *timer(){
 			fprintf(backlight_brightness_file,"%d",current_backlight_brightness);
 			fflush(backlight_brightness_file);
 			usleep(3000);
+			
+			// Only re-lock once the fade is done to save CPU cycles
+			if(current_backlight_brightness==desired_backlight_brightness){
+				pthread_mutex_lock(&timer_mutex);
+			}
 		}
 	}
 }

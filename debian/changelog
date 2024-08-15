@@ -1,3 +1,9 @@
+keylightc (1.1-0ubuntu0~ppa0~24.10.0) oracular; urgency=medium
+
+  * Fix potential race in timer thread
+
+ -- Michael Marley <michael@michaelmarley.com>  Thu, 15 Aug 2024 06:00:00 -0400
+
 keylightc (1.0-0ubuntu0~ppa0~24.10.0) oracular; urgency=medium
 
   * New "upstream" release
