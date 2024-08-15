@@ -1,5 +1,5 @@
 all: 
-	$(CC) -O2 $(CFLAGS) -o keylightc keylightc.c
+	$(CC) -O2 -Werror -Wall -pedantic $(CFLAGS) -o keylightc keylightc.c
 
 install:
 	install -d $(DESTDIR)/usr/bin/

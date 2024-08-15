@@ -19,41 +19,41 @@
 */
 
 #define _GNU_SOURCE /* for asprintf */
-#include <stdio.h>
-#include <stdbool.h>
 
-#include <linux/input.h>
-
-#include <errno.h>
-#include <string.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <stdlib.h>
 #include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
-#include <pthread.h>
 #include <limits.h>
-
+#include <linux/input.h>
+#include <pthread.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/poll.h>
+#include <unistd.h>
 
 #define DEV_INPUT_EVENT "/dev/input"
 #define EVENT_DEV_NAME "event"
-
-#define BACKLIGHT_DEVICE "/sys/class/leds/chromeos::kbd_backlight/brightness"
-
-#define NSEC_PER_SEC 1000000000
 #define NUM_FDS 2
 
-#define TOUCHPAD_DEVICE_NAME "PIXA3854:00 093A:0274 Touchpad"
+#define BACKLIGHT_DEVICE "/sys/class/leds/chromeos::kbd_backlight/brightness"
+#define DEFAULT_BACKLIGHT_ON_SECONDS 10
+#define DEFAULT_BACKLIGHT_BRIGHTNESS 30
+#define DEFAULT_FADE_DURATION 100000
+
 #define KEYBOARD_DEVICE_NAME "AT Translated Set 2 keyboard"
+#define TOUCHPAD_DEVICE_NAME "PIXA3854:00 093A:0274 Touchpad"
 
 pthread_t timer_thread;
 pthread_cond_t timer_cond;
 pthread_mutex_t timer_mutex;
 pthread_mutex_t backlight_off_time_mutex;
 
-int configured_backlight_on_seconds=10;
-int configured_backlight_brightness=30;
+int configured_backlight_on_seconds=DEFAULT_BACKLIGHT_ON_SECONDS;
+int configured_backlight_brightness=DEFAULT_BACKLIGHT_BRIGHTNESS;
+int configured_fade_duration=DEFAULT_FADE_DURATION;
 
 int desired_backlight_brightness=0;
 struct timespec backlight_off_time;
@@ -89,19 +89,20 @@ static int get_input_fds(struct pollfd *fds){
 		
 		ioctl(fd,EVIOCGNAME(sizeof(name)),name);
 		
-		if(!strcmp(TOUCHPAD_DEVICE_NAME,name)){
-			printf("Found touchpad device: %s:	%s (%d)\n",fname,name,fd);
-			fds[0].fd=fd;
-			fds[0].events=POLLIN;
-		}else if(!strcmp(KEYBOARD_DEVICE_NAME,name)){
-			printf("Found keyboard device: %s:	%s (%d)\n",fname,name,fd);
+		if(!strcmp(KEYBOARD_DEVICE_NAME,name)){
+			printf("Found keyboard device: %s:	%s\n",fname,name);
 			fds[1].fd=fd;
 			fds[1].events=POLLIN;
+		}else if(!strcmp(TOUCHPAD_DEVICE_NAME,name)){
+			printf("Found touchpad device: %s:	%s\n",fname,name);
+			fds[0].fd=fd;
+			fds[0].events=POLLIN;
 		}else{
 			close(fd);
 		}
 		free(namelist[i]);
 	}
+	return EXIT_SUCCESS;
 }
 
 static int timespec_cmp(struct timespec ts1,struct timespec ts2){
@@ -116,6 +117,8 @@ static int timespec_cmp(struct timespec ts1,struct timespec ts2){
 
 void *timer(){
 	int current_backlight_brightness=0;
+	int previous_desired_backlight_brightness=-1;
+	int fade_interval=0;
 	struct timespec current_time;
 	struct timespec local_backlight_off_time;
 	
@@ -143,6 +146,12 @@ void *timer(){
 		// As long as no change to desired_backlight_brightness can be made outside either the pthread_cond_wait or the dimmer loop, we are safe from races
 		pthread_mutex_unlock(&timer_mutex);
 		while(current_backlight_brightness!=desired_backlight_brightness){
+			// If the desired_backlight_brightness has changed since the last iteration, calculate a new fade_interval
+			if(previous_desired_backlight_brightness!=desired_backlight_brightness){
+				previous_desired_backlight_brightness=desired_backlight_brightness;
+				fade_interval=configured_fade_duration/abs(current_backlight_brightness-desired_backlight_brightness);
+			}
+			
 			if(current_backlight_brightness>desired_backlight_brightness){
 				current_backlight_brightness--;
 			}else{
@@ -150,7 +159,7 @@ void *timer(){
 			}
 			fprintf(backlight_brightness_file,"%d",current_backlight_brightness);
 			fflush(backlight_brightness_file);
-			usleep(3000);
+			usleep(fade_interval);
 			
 			// Only re-lock once the fade is done to save CPU cycles
 			if(current_backlight_brightness==desired_backlight_brightness){
@@ -174,17 +183,19 @@ static int string_to_int(int *result, int min, int max, char *string){
 }
 
 static int usage(){
-	printf("Usage: keylightc [--brightness <brightness>] [--timeout <timeout>]\n\n");
+	printf("Usage: keylightc [--brightness <brightness>] [--fadeduration <fadeduration>] [--timeout <timeout>]\n\n");
 	printf("keylightc - automatic keyboard backlight daemon for Framework laptops\n\n");
 	printf("Options:\n");
-	printf("  --brightness\t\tbrightness level when active (1-100) [default=30]\n");
-	printf("  --timeout\t\tactivity timeout in seconds (1-%d) [default=10]\n",INT_MAX);
+	printf("  --brightness\t\tbrightness level when active (1-100) [default=%d]\n",DEFAULT_BACKLIGHT_BRIGHTNESS);
+	printf("  --fadeduration\tfade time in microseconds (1-%d) [default=%d]\n",INT_MAX,DEFAULT_FADE_DURATION);
+	printf("  --timeout\t\tactivity timeout in seconds (1-%d) [default=%d]\n",INT_MAX,DEFAULT_BACKLIGHT_ON_SECONDS);
 	printf("  --help\t\tdisplay usage information\n");
 	return EXIT_FAILURE;
 }
 
 static const struct option long_options[]={
 	{"brightness",required_argument,0,'b'},
+	{"fadeduration",required_argument,0,'f'},
 	{"timeout",required_argument,0,'t'},
 	{"help",no_argument,0,'h'},
 	{NULL,0,0,'\0'},
@@ -199,6 +210,11 @@ int main(int argc,char **argv){
 				break;
 			case 'b':
 				if(string_to_int(&configured_backlight_brightness,1,100,optarg)){
+					return usage();
+				}
+				break;
+			case 'f':
+				if(string_to_int(&configured_fade_duration,1,INT_MAX,optarg)){
 					return usage();
 				}
 				break;
