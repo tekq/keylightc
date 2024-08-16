@@ -36,15 +36,19 @@
 
 #define DEV_INPUT_EVENT "/dev/input"
 #define EVENT_DEV_NAME "event"
-#define NUM_FDS 2
 
 #define BACKLIGHT_DEVICE "/sys/class/leds/chromeos::kbd_backlight/brightness"
 #define DEFAULT_BACKLIGHT_ON_SECONDS 10
 #define DEFAULT_BACKLIGHT_BRIGHTNESS 30
 #define DEFAULT_FADE_DURATION 100000
 
-#define KEYBOARD_DEVICE_NAME "AT Translated Set 2 keyboard"
-#define TOUCHPAD_DEVICE_NAME "PIXA3854:00 093A:0274 Touchpad"
+// This must be set exactly to the number of elements in the array or else a segfault will occur
+#define SEARCH_DEVICE_COUNT 2
+const char *search_devices[SEARCH_DEVICE_COUNT]={
+	"AT Translated Set 2 keyboard",
+	"PIXA3854:00 093A:0274 Touchpad",
+};
+int found_device_count=0;
 
 pthread_t timer_thread;
 pthread_cond_t timer_cond;
@@ -58,54 +62,64 @@ int configured_fade_duration=DEFAULT_FADE_DURATION;
 int desired_backlight_brightness=0;
 struct timespec backlight_off_time;
 
-FILE* backlight_brightness_file;
+FILE *backlight_brightness_file;
 
 static int is_event_device(const struct dirent *dir){
 	return strncmp(EVENT_DEV_NAME,dir->d_name,5)==0;
 }
 
+static bool string_in_array(const char *string,const char *array[],int array_length){
+	for(int i=0;i<array_length;i++){
+		if(!strcmp(string,array[i])){
+			return true;
+		}
+	}
+	return false;
+}
+
 static int get_input_fds(struct pollfd *fds){
 	struct dirent **namelist;
-	int i,ndev;
-	
-	ndev=scandir(DEV_INPUT_EVENT,&namelist,is_event_device,alphasort);
-	if(ndev<=0){
+	int device_count=scandir(DEV_INPUT_EVENT,&namelist,is_event_device,alphasort);
+	int clock_type=CLOCK_MONOTONIC;
+	if(device_count<=0){
+		fprintf(stderr,"%s directory contains no devices!\n",DEV_INPUT_EVENT);
 		return EXIT_FAILURE;
 	}
 	
-	for(i=0;i<ndev;i++){
-		char fname[4096];
+	for(int i=0;i<device_count&&found_device_count<=SEARCH_DEVICE_COUNT;i++){
+		char device_filename[4096];
 		int fd=-1;
-		char name[256]="???";
+		char device_name[256]="???";
 		
-		snprintf(fname,sizeof(fname),"%s/%s",DEV_INPUT_EVENT,namelist[i]->d_name);
-		fd=open(fname,O_RDONLY);
+		snprintf(device_filename,sizeof(device_filename),"%s/%s",DEV_INPUT_EVENT,namelist[i]->d_name);
+		fd=open(device_filename,O_RDONLY);
 		if(fd<0){
 			continue;
 		}
+		ioctl(fd,EVIOCGNAME(sizeof(device_name)),device_name);
 		
-		int flags=fcntl(fd,F_GETFL,0);
-		fcntl(fd,F_SETFL,flags|O_NONBLOCK);
-		
-		ioctl(fd,EVIOCGNAME(sizeof(name)),name);
-		
-		if(!strcmp(KEYBOARD_DEVICE_NAME,name)){
-			printf("Found keyboard device: %s:	%s\n",fname,name);
-			fds[1].fd=fd;
-			fds[1].events=POLLIN;
-		}else if(!strcmp(TOUCHPAD_DEVICE_NAME,name)){
-			printf("Found touchpad device: %s:	%s\n",fname,name);
-			fds[0].fd=fd;
-			fds[0].events=POLLIN;
+		if(string_in_array(device_name,search_devices,SEARCH_DEVICE_COUNT)){
+			ioctl(fd,EVIOCSCLOCKID,&clock_type);
+			printf("Using device: %s:\t%s\n",device_filename,device_name);
+			fds[found_device_count].fd=fd;
+			fds[found_device_count].events=POLLIN;
+			found_device_count++;
 		}else{
 			close(fd);
 		}
+		
 		free(namelist[i]);
 	}
+	
+	if(found_device_count==0){
+		fprintf(stderr,"No matching input devices found!\n");
+		return EXIT_FAILURE;
+	}
+	
 	return EXIT_SUCCESS;
 }
 
-static int timespec_cmp(struct timespec ts1,struct timespec ts2){
+static int timespec_cmp(const struct timespec ts1,const struct timespec ts2){
 	if(ts1.tv_sec==ts2.tv_sec&&ts1.tv_nsec==ts2.tv_nsec){
 		return 0;
 	}else if((ts1.tv_sec>ts2.tv_sec)||(ts1.tv_sec==ts2.tv_sec&&ts1.tv_nsec>ts2.tv_nsec)){
@@ -113,6 +127,11 @@ static int timespec_cmp(struct timespec ts1,struct timespec ts2){
 	}else{
 		return -1;
 	}
+}
+
+void set_backlight_brightness(int brightness){
+	fprintf(backlight_brightness_file,"%d",brightness);
+	fflush(backlight_brightness_file);
 }
 
 void *timer(){
@@ -157,8 +176,7 @@ void *timer(){
 			}else{
 				current_backlight_brightness++;
 			}
-			fprintf(backlight_brightness_file,"%d",current_backlight_brightness);
-			fflush(backlight_brightness_file);
+			set_backlight_brightness(current_backlight_brightness);
 			usleep(fade_interval);
 			
 			// Only re-lock once the fade is done to save CPU cycles
@@ -169,7 +187,7 @@ void *timer(){
 	}
 }
 
-static int string_to_int(int *result, int min, int max, char *string){
+static int string_to_int(int *result,const int min,const int max,const char *string){
 	errno=0;
 	const long long_value=strtol(string,NULL,10);
 	if(errno!=0){
@@ -201,7 +219,7 @@ static const struct option long_options[]={
 	{NULL,0,0,'\0'},
 };
 
-int main(int argc,char **argv){
+int main(const int argc,char **argv){
 	int option;
 	while((option=getopt_long(argc,argv,"",long_options,NULL))!=EOF){
 		switch(option){
@@ -239,10 +257,13 @@ int main(int argc,char **argv){
 		fprintf(stderr,"Failed to open backlight device!\n");
 		return EXIT_FAILURE;
 	}
+	set_backlight_brightness(0);
 	
 	struct input_event input_event[64];
-	struct pollfd fds[NUM_FDS];
-	get_input_fds(fds);
+	struct pollfd fds[SEARCH_DEVICE_COUNT];
+	if(get_input_fds(fds)){
+		return EXIT_FAILURE;
+	}
 	
 	pthread_condattr_t timer_condattr;
 	pthread_condattr_init(&timer_condattr);
@@ -254,21 +275,31 @@ int main(int argc,char **argv){
 	pthread_create(&timer_thread,NULL,timer,NULL);
 	
 	int i;
+	int read_bytes;
 	while(true){
-		if(poll(fds,NUM_FDS,-1)==-1){
+		if(poll(fds,found_device_count,-1)==-1){
 			fprintf(stderr,"Poll failure‽\n");
 			return EXIT_FAILURE;
 		}
 		
-		for(i=0;i<NUM_FDS;i++){
+		for(i=0;i<found_device_count;i++){
 			if(fds[i].revents&POLLIN){
-				(void)!read(fds[i].fd,input_event,sizeof(input_event));
+				read_bytes=read(fds[i].fd,input_event,sizeof(input_event));
+				if(read_bytes==-1){
+					fprintf(stderr,"Read failure‽\n");
+					return EXIT_FAILURE;
+				}
 				
+				// Get the index of the last event, which will be the latest event
+				int last_event_index=read_bytes/sizeof(struct input_event)-1;
+				
+				// Set backlight_off_time to the event time plus configured_backlight_on_seconds, converting usec to nsec as necessary
 				pthread_mutex_lock(&backlight_off_time_mutex);
-				clock_gettime(CLOCK_MONOTONIC,&backlight_off_time);
-				backlight_off_time.tv_sec+=configured_backlight_on_seconds;
+				backlight_off_time.tv_sec=input_event[last_event_index].input_event_sec+configured_backlight_on_seconds;
+				backlight_off_time.tv_nsec=input_event[last_event_index].input_event_usec*1000;
 				pthread_mutex_unlock(&backlight_off_time_mutex);
 				
+				// If the backlight is currently off, signal the timer thread to turn it on
 				pthread_mutex_lock(&timer_mutex);
 				if(desired_backlight_brightness==0){
 					printf("Turning backlight on\n");
@@ -276,9 +307,6 @@ int main(int argc,char **argv){
 					pthread_cond_signal(&timer_cond);
 				}
 				pthread_mutex_unlock(&timer_mutex);
-				
-				// Extra read helps to reduce events delayed by the sleep below
-				(void)!read(fds[i].fd,input_event,sizeof(input_event));
 			}
 		}
 		

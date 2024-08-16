@@ -1,3 +1,13 @@
+keylightc (1.3-0ubuntu0~ppa0~24.10.0) oracular; urgency=medium
+
+  * Use event time instead of current time for backlight off time calculation
+  * Use an array for search devices instead of defines
+  * Turn off backlight on startup
+  * Improve error handling
+  * Code style fixes
+
+ -- Michael Marley <michael@michaelmarley.com>  Fri, 16 Aug 2024 15:43:35 -0400
+
 keylightc (1.2-0ubuntu0~ppa0~24.10.0) oracular; urgency=medium
 
   * Add support for setting fade duration
