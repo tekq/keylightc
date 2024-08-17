@@ -78,7 +78,7 @@ static bool string_in_array(const char *string,const char *array[],int array_len
 }
 
 static int get_input_fds(struct pollfd *fds){
-	struct dirent **namelist;
+	struct dirent **namelist={};
 	int device_count=scandir(DEV_INPUT_EVENT,&namelist,is_event_device,alphasort);
 	int clock_type=CLOCK_MONOTONIC;
 	if(device_count<=0){
@@ -134,12 +134,12 @@ void set_backlight_brightness(int brightness){
 	fflush(backlight_brightness_file);
 }
 
-void *timer(){
+void *timer(void *arg){
 	int current_backlight_brightness=0;
 	int previous_desired_backlight_brightness=-1;
 	int fade_interval=0;
-	struct timespec current_time;
-	struct timespec local_backlight_off_time;
+	struct timespec current_time={};
+	struct timespec local_backlight_off_time={};
 	
 	pthread_mutex_lock(&timer_mutex);
 	while(true){
@@ -276,6 +276,8 @@ int main(const int argc,char **argv){
 	
 	int i;
 	int read_bytes;
+	struct timespec event_time={};
+	struct timespec latest_event_time={};
 	while(true){
 		if(poll(fds,found_device_count,-1)==-1){
 			fprintf(stderr,"Poll failure‽\n");
@@ -290,25 +292,32 @@ int main(const int argc,char **argv){
 					return EXIT_FAILURE;
 				}
 				
-				// Get the index of the last event, which will be the latest event
+				// Get the index of the last event, which will be the latest event for this device
 				int last_event_index=read_bytes/sizeof(struct input_event)-1;
 				
-				// Set backlight_off_time to the event time plus configured_backlight_on_seconds, converting usec to nsec as necessary
-				pthread_mutex_lock(&backlight_off_time_mutex);
-				backlight_off_time.tv_sec=input_event[last_event_index].input_event_sec+configured_backlight_on_seconds;
-				backlight_off_time.tv_nsec=input_event[last_event_index].input_event_usec*1000;
-				pthread_mutex_unlock(&backlight_off_time_mutex);
-				
-				// If the backlight is currently off, signal the timer thread to turn it on
-				pthread_mutex_lock(&timer_mutex);
-				if(desired_backlight_brightness==0){
-					printf("Turning backlight on\n");
-					desired_backlight_brightness=configured_backlight_brightness;
-					pthread_cond_signal(&timer_cond);
+				// Convert the event time into a timespec and update latest_event_time if it is more recent
+				event_time.tv_sec=input_event[last_event_index].input_event_sec;
+				event_time.tv_nsec=input_event[last_event_index].input_event_usec*1000;
+				if(timespec_cmp(event_time,latest_event_time)>=0){
+					memcpy(&latest_event_time,&event_time,sizeof(struct timespec));
 				}
-				pthread_mutex_unlock(&timer_mutex);
 			}
 		}
+		
+		// Set backlight_off_time to latest_event_time plus configured_backlight_on_seconds
+		pthread_mutex_lock(&backlight_off_time_mutex);
+		backlight_off_time.tv_sec=latest_event_time.tv_sec+configured_backlight_on_seconds;
+		backlight_off_time.tv_nsec=latest_event_time.tv_nsec;
+		pthread_mutex_unlock(&backlight_off_time_mutex);
+		
+		// If the backlight is currently off, signal the timer thread to turn it on
+		pthread_mutex_lock(&timer_mutex);
+		if(desired_backlight_brightness==0){
+			printf("Turning backlight on\n");
+			desired_backlight_brightness=configured_backlight_brightness;
+			pthread_cond_signal(&timer_cond);
+		}
+		pthread_mutex_unlock(&timer_mutex);
 		
 		// Sleep here to prevent spinning and using too much CPU
 		usleep(1000000);

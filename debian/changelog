@@ -1,3 +1,11 @@
+keylightc (1.4-0ubuntu0~ppa0~24.10.0) oracular; urgency=medium
+
+  * Switch to C23
+  * Initialize all local structs to 0
+  * Keep track of the most recent event time per cycle and use that in the backlight off time calculation
+
+ -- Michael Marley <michael@michaelmarley.com>  Fri, 16 Aug 2024 20:33:20 -0400
+
 keylightc (1.3-0ubuntu0~ppa0~24.10.0) oracular; urgency=medium
 
   * Use event time instead of current time for backlight off time calculation
