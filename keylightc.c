@@ -216,7 +216,7 @@ static const struct option long_options[]={
 	{"fadeduration",required_argument,0,'f'},
 	{"timeout",required_argument,0,'t'},
 	{"help",no_argument,0,'h'},
-	{NULL,0,0,'\0'},
+	{},
 };
 
 int main(const int argc,char **argv){
