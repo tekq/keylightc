@@ -254,7 +254,7 @@ int main(const int argc,char **argv){
 	
 	backlight_brightness_file=fopen(BACKLIGHT_DEVICE,"w");
 	if(backlight_brightness_file==NULL){
-		fprintf(stderr,"Failed to open backlight device!\n");
+		fprintf(stderr,"Failed to open backlight device!  Are you running Linux kernel 6.11 or later?\n");
 		return EXIT_FAILURE;
 	}
 	set_backlight_brightness(0);
