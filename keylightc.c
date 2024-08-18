@@ -54,7 +54,6 @@ pthread_t input_thread;
 
 pthread_cond_t timer_cond;
 pthread_mutex_t timer_mutex;
-pthread_mutex_t backlight_off_time_mutex;
 
 int configured_backlight_on_seconds=DEFAULT_BACKLIGHT_ON_SECONDS;
 int configured_backlight_brightness=DEFAULT_BACKLIGHT_BRIGHTNESS;
@@ -172,14 +171,12 @@ void *input_handler(void *arg){
 			}
 		}
 		
+		pthread_mutex_lock(&timer_mutex);
 		// Set backlight_off_time to latest_event_time plus configured_backlight_on_seconds
-		pthread_mutex_lock(&backlight_off_time_mutex);
 		backlight_off_time.tv_sec=latest_event_time.tv_sec+configured_backlight_on_seconds;
 		backlight_off_time.tv_nsec=latest_event_time.tv_nsec;
-		pthread_mutex_unlock(&backlight_off_time_mutex);
 		
 		// If the backlight is currently off, signal the main thread to turn it on
-		pthread_mutex_lock(&timer_mutex);
 		if(desired_backlight_brightness==0){
 			printf("Turning backlight on\n");
 			desired_backlight_brightness=configured_backlight_brightness;
@@ -269,7 +266,6 @@ int main(const int argc,char **argv){
 	pthread_condattr_setclock(&timer_condattr,CLOCK_MONOTONIC);
 	pthread_cond_init(&timer_cond,&timer_condattr);
 	pthread_mutex_init(&timer_mutex,NULL);
-	pthread_mutex_init(&backlight_off_time_mutex,NULL);
 	
 	pthread_mutex_lock(&timer_mutex);
 	
@@ -280,16 +276,10 @@ int main(const int argc,char **argv){
 	int previous_desired_backlight_brightness=-1;
 	int fade_interval=0;
 	struct timespec current_time={};
-	struct timespec local_backlight_off_time={};
 	
 	while(true){
-		// Lock and copy to ensure input thread doesn't touch backlight_off_time while we read it
-		pthread_mutex_lock(&backlight_off_time_mutex);
-		memcpy(&local_backlight_off_time,&backlight_off_time,sizeof(struct timespec));
-		pthread_mutex_unlock(&backlight_off_time_mutex);
-		
 		clock_gettime(CLOCK_MONOTONIC,&current_time);
-		if(desired_backlight_brightness==configured_backlight_brightness&&timespec_cmp(current_time,local_backlight_off_time)>=0){
+		if(desired_backlight_brightness==configured_backlight_brightness&&timespec_cmp(current_time,backlight_off_time)>=0){
 			// If current_time is greater than or equal to backlight_off_time, turn the backlight off
 			printf("Turning backlight off\n");
 			desired_backlight_brightness=0;
@@ -298,7 +288,7 @@ int main(const int argc,char **argv){
 			pthread_cond_wait(&timer_cond,&timer_mutex);
 		}else{
 			// If current_time is less than backlight_off_time, wait until backlight_off_time
-			pthread_cond_timedwait(&timer_cond,&timer_mutex,&local_backlight_off_time);
+			pthread_cond_timedwait(&timer_cond,&timer_mutex,&backlight_off_time);
 		}
 		
 		while(current_backlight_brightness!=desired_backlight_brightness){
