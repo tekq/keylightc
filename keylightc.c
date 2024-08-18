@@ -161,10 +161,11 @@ void *timer(void *arg){
 			pthread_cond_timedwait(&timer_cond,&timer_mutex,&local_backlight_off_time);
 		}
 		
-		// Allow the main thread to make desired_backlight_brightness changes while in the dimmer loop
-		// As long as no change to desired_backlight_brightness can be made outside either the pthread_cond_wait or the dimmer loop, we are safe from races
-		pthread_mutex_unlock(&timer_mutex);
 		while(current_backlight_brightness!=desired_backlight_brightness){
+			// Allow the main thread to make desired_backlight_brightness changes while in the dimmer loop
+			// As long as no change to desired_backlight_brightness can be made outside either the pthread_cond_wait or the dimmer loop, we are safe from races
+			pthread_mutex_unlock(&timer_mutex);
+			
 			// If the desired_backlight_brightness has changed since the last iteration, calculate a new fade_interval
 			if(previous_desired_backlight_brightness!=desired_backlight_brightness){
 				previous_desired_backlight_brightness=desired_backlight_brightness;
@@ -179,10 +180,7 @@ void *timer(void *arg){
 			set_backlight_brightness(current_backlight_brightness);
 			usleep(fade_interval);
 			
-			// Only re-lock once the fade is done to save CPU cycles
-			if(current_backlight_brightness==desired_backlight_brightness){
-				pthread_mutex_lock(&timer_mutex);
-			}
+			pthread_mutex_lock(&timer_mutex);
 		}
 	}
 }
