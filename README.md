@@ -39,6 +39,6 @@ keylightc - automatic keyboard backlight daemon for Framework laptops
 Options:
   --brightness          brightness level when active (1-100) [default=30]
   --fadeduration        fade time in microseconds (1-2147483647) [default=100000]
-  --timeout             activity timeout in seconds (1-2147483647) [default=10]
+  --timeout             activity timeout in seconds (10-2147483647) [default=10]
   --help                display usage information
 ```
