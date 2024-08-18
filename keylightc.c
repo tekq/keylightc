@@ -100,7 +100,7 @@ static int get_input_fds(struct pollfd *fds){
 		
 		if(string_in_array(device_name,search_devices,SEARCH_DEVICE_COUNT)){
 			ioctl(fd,EVIOCSCLOCKID,&clock_type);
-			printf("Using device: %s:\t%s\n",device_filename,device_name);
+			printf("Using device %s:\t%s\n",device_filename,device_name);
 			fds[found_device_count].fd=fd;
 			fds[found_device_count].events=POLLIN;
 			found_device_count++;
