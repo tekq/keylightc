@@ -129,7 +129,7 @@ static int timespec_cmp(const struct timespec ts1,const struct timespec ts2){
 	}
 }
 
-void set_backlight_brightness(int brightness){
+static void set_backlight_brightness(int brightness){
 	fprintf(backlight_brightness_file,"%d",brightness);
 	fflush(backlight_brightness_file);
 }
