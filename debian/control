@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Michael Marley <michael@michaelmarley.com>
 Build-Depends:
  debhelper-compat (= 13),
-Standards-Version: 4.6.2
+Standards-Version: 4.7.0
 Homepage: https://gitlab.com/mamarley/keylightc
 Vcs-Git: https://gitlab.com/mamarley/keylightc.git
 Vcs-Browser: https://gitlab.com/mamarley/keylightc
@@ -15,4 +15,4 @@ Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Pre-Depends: ${misc:Pre-Depends}
 Multi-Arch: same
-Description: Automatic keyboard backlight for Framework 13
+Description: Automatic keyboard backlight for Framework laptops
