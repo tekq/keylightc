@@ -142,7 +142,7 @@ void *input_handler(void *arg){
 	
 	int i;
 	int read_bytes;
-	struct input_event input_event[64];
+	struct input_event input_event[256];
 	struct timespec event_time={};
 	struct timespec latest_event_time={};
 	while(true){
@@ -185,7 +185,7 @@ void *input_handler(void *arg){
 		pthread_mutex_unlock(&timer_mutex);
 		
 		// Sleep here to prevent spinning and using too much CPU
-		usleep(1000000);
+		usleep(500000);
 	}
 }
 
@@ -206,7 +206,7 @@ static int usage(){
 	printf("Usage: keylightc [--brightness <brightness>] [--fadeduration <fadeduration>] [--timeout <timeout>]\n\n");
 	printf("keylightc - automatic keyboard backlight daemon for Framework laptops\n\n");
 	printf("Options:\n");
-	printf("  --brightness\t\tbrightness level when active (10-100) [default=%d]\n",DEFAULT_BACKLIGHT_BRIGHTNESS);
+	printf("  --brightness\t\tbrightness level when active (1-100) [default=%d]\n",DEFAULT_BACKLIGHT_BRIGHTNESS);
 	printf("  --fadeduration\tfade time in microseconds (1-%d) [default=%d]\n",INT_MAX,DEFAULT_FADE_DURATION);
 	printf("  --timeout\t\tactivity timeout in seconds (1-%d) [default=%d]\n",INT_MAX,DEFAULT_BACKLIGHT_ON_SECONDS);
 	printf("  --help\t\tdisplay usage information\n");
@@ -239,7 +239,7 @@ int main(const int argc,char **argv){
 				}
 				break;
 			case 't':
-				if(string_to_int(&configured_backlight_on_seconds,10,INT_MAX,optarg)){
+				if(string_to_int(&configured_backlight_on_seconds,1,INT_MAX,optarg)){
 					return usage();
 				}
 				break;
