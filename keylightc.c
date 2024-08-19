@@ -207,7 +207,7 @@ static int usage(){
 	printf("keylightc - automatic keyboard backlight daemon for Framework laptops\n\n");
 	printf("Options:\n");
 	printf("  --brightness\t\tbrightness level when active (1-100) [default=%d]\n",DEFAULT_BACKLIGHT_BRIGHTNESS);
-	printf("  --fadeduration\tfade time in microseconds (1-%d) [default=%d]\n",INT_MAX,DEFAULT_FADE_DURATION);
+	printf("  --fadeduration\tfade time in microseconds (1-1000000) [default=%d]\n",DEFAULT_FADE_DURATION);
 	printf("  --timeout\t\tactivity timeout in seconds (1-%d) [default=%d]\n",INT_MAX,DEFAULT_BACKLIGHT_ON_SECONDS);
 	printf("  --help\t\tdisplay usage information\n");
 	return EXIT_FAILURE;
@@ -234,7 +234,7 @@ int main(const int argc,char **argv){
 				}
 				break;
 			case 'f':
-				if(string_to_int(&configured_fade_duration,1,INT_MAX,optarg)){
+				if(string_to_int(&configured_fade_duration,1,1000000,optarg)){
 					return usage();
 				}
 				break;
