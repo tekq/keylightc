@@ -18,7 +18,7 @@
 * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 */
 
-#define _GNU_SOURCE /* for asprintf */
+#define _GNU_SOURCE
 
 #include <dirent.h>
 #include <errno.h>
@@ -44,25 +44,25 @@
 
 // This must be set exactly to the number of elements in the array or else a segfault will occur
 #define SEARCH_DEVICE_COUNT 2
-const char *search_devices[SEARCH_DEVICE_COUNT]={
+static const char *search_devices[SEARCH_DEVICE_COUNT]={
 	"AT Translated Set 2 keyboard",
 	"PIXA3854:00 093A:0274 Touchpad",
 };
-int found_device_count=0;
+static int found_device_count=0;
 
-pthread_t input_thread;
+static pthread_t input_thread;
 
-pthread_cond_t timer_cond;
-pthread_mutex_t timer_mutex;
+static pthread_cond_t timer_cond;
+static pthread_mutex_t timer_mutex;
 
-int configured_backlight_on_seconds=DEFAULT_BACKLIGHT_ON_SECONDS;
-int configured_backlight_brightness=DEFAULT_BACKLIGHT_BRIGHTNESS;
-int configured_fade_duration=DEFAULT_FADE_DURATION;
+static int configured_backlight_on_seconds=DEFAULT_BACKLIGHT_ON_SECONDS;
+static int configured_backlight_brightness=DEFAULT_BACKLIGHT_BRIGHTNESS;
+static int configured_fade_duration=DEFAULT_FADE_DURATION;
 
-int desired_backlight_brightness=0;
-struct timespec backlight_off_time;
+static int desired_backlight_brightness=0;
+static struct timespec backlight_off_time;
 
-FILE *backlight_brightness_file;
+static FILE *backlight_brightness_file;
 
 static int is_event_device(const struct dirent *dir){
 	return strncmp(EVENT_DEV_NAME,dir->d_name,5)==0;
@@ -145,12 +145,14 @@ void *input_handler(void *arg){
 	struct input_event input_event[256];
 	struct timespec event_time={};
 	struct timespec latest_event_time={};
+	bool new_event;
 	while(true){
 		if(poll(fds,found_device_count,-1)==-1){
 			fprintf(stderr,"Poll failure‽\n");
 			exit(EXIT_FAILURE);
 		}
 		
+		new_event=false;
 		for(i=0;i<found_device_count;i++){
 			if(fds[i].revents&POLLIN){
 				read_bytes=read(fds[i].fd,input_event,sizeof(input_event));
@@ -167,25 +169,28 @@ void *input_handler(void *arg){
 				event_time.tv_nsec=input_event[last_event_index].input_event_usec*1000;
 				if(timespec_cmp(event_time,latest_event_time)>=0){
 					memcpy(&latest_event_time,&event_time,sizeof(struct timespec));
+					new_event=true;
 				}
 			}
 		}
 		
-		pthread_mutex_lock(&timer_mutex);
-		// Set backlight_off_time to latest_event_time plus configured_backlight_on_seconds
-		backlight_off_time.tv_sec=latest_event_time.tv_sec+configured_backlight_on_seconds;
-		backlight_off_time.tv_nsec=latest_event_time.tv_nsec;
-		
-		// If the backlight is currently off, signal the main thread to turn it on
-		if(desired_backlight_brightness==0){
-			printf("Turning backlight on\n");
-			desired_backlight_brightness=configured_backlight_brightness;
-			pthread_cond_signal(&timer_cond);
+		if(new_event){
+			pthread_mutex_lock(&timer_mutex);
+			// Set backlight_off_time to latest_event_time plus configured_backlight_on_seconds
+			backlight_off_time.tv_sec=latest_event_time.tv_sec+configured_backlight_on_seconds;
+			backlight_off_time.tv_nsec=latest_event_time.tv_nsec;
+			
+			// If the backlight is currently off, signal the main thread to turn it on
+			if(desired_backlight_brightness==0){
+				printf("Turning backlight on\n");
+				desired_backlight_brightness=configured_backlight_brightness;
+				pthread_cond_signal(&timer_cond);
+			}
+			pthread_mutex_unlock(&timer_mutex);
+			
+			// Sleep here to prevent spinning and using too much CPU
+			usleep(500000);
 		}
-		pthread_mutex_unlock(&timer_mutex);
-		
-		// Sleep here to prevent spinning and using too much CPU
-		usleep(500000);
 	}
 }
 
