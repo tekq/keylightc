@@ -34,6 +34,10 @@
 #include <sys/poll.h>
 #include <unistd.h>
 
+#define NSEC_PER_SEC 1000000000
+#define USEC_PER_SEC 1000000
+#define NSEC_PER_USEC 1000
+
 #define DEV_INPUT_EVENT "/dev/input"
 #define EVENT_DEV_NAME "event"
 
@@ -130,7 +134,16 @@ static int timespec_cmp(const struct timespec ts1,const struct timespec ts2){
 	}
 }
 
-static void set_backlight_brightness(int brightness){
+static void timespec_add_usec(struct timespec *timespec,const int usec){
+	timespec->tv_sec+=usec/USEC_PER_SEC;
+	timespec->tv_nsec+=(usec%USEC_PER_SEC)*NSEC_PER_USEC;
+	if(timespec->tv_nsec>=NSEC_PER_SEC){
+		timespec->tv_sec+=1;
+		timespec->tv_nsec-=NSEC_PER_SEC;
+	}
+}
+
+static void set_backlight_brightness(const int brightness){
 	fprintf(backlight_brightness_file,"%d",brightness);
 	fflush(backlight_brightness_file);
 }
@@ -162,7 +175,7 @@ void *input_handler(void *arg){
 				
 				// Convert the event time into a timespec and update latest_event_time if it is more recent
 				event_time.tv_sec=input_event[last_event_index].input_event_sec;
-				event_time.tv_nsec=input_event[last_event_index].input_event_usec*1000;
+				event_time.tv_nsec=input_event[last_event_index].input_event_usec*NSEC_PER_USEC;
 				if(timespec_cmp(event_time,latest_event_time)>=0){
 					memcpy(&latest_event_time,&event_time,sizeof(struct timespec));
 					new_event=true;
@@ -281,41 +294,52 @@ int main(const int argc,char **argv){
 	int previous_desired_backlight_brightness=-1;
 	int fade_interval=0;
 	struct timespec current_time={};
+	struct timespec next_fade_step_time={};
 	
 	while(true){
 		clock_gettime(CLOCK_MONOTONIC,&current_time);
-		if(desired_backlight_brightness==configured_backlight_brightness&&timespec_cmp(current_time,backlight_off_time)>=0){
-			// If current_time is greater than or equal to backlight_off_time, turn the backlight off
+		
+		// If the backlight is on and current_time is greater than or equal to backlight_off_time, turn the backlight off
+		if(desired_backlight_brightness!=0&&timespec_cmp(current_time,backlight_off_time)>=0){
 			printf("Turning backlight off\n");
 			desired_backlight_brightness=0;
-		}else if(desired_backlight_brightness!=configured_backlight_brightness){
-			// If the backlight is already off, wait to be signaled to turn it back on
-			pthread_cond_wait(&timer_cond,&timer_mutex);
-		}else{
-			// If current_time is less than backlight_off_time, wait until backlight_off_time
-			pthread_cond_timedwait(&timer_cond,&timer_mutex,&backlight_off_time);
 		}
 		
-		while(current_backlight_brightness!=desired_backlight_brightness){
-			// Allow the input thread to make desired_backlight_brightness changes while in the dimmer loop
-			// As long as no change to desired_backlight_brightness can be made outside either the pthread_cond_wait or the dimmer loop, we are safe from races
-			pthread_mutex_unlock(&timer_mutex);
-			
-			// If the desired_backlight_brightness has changed since the last iteration, calculate a new fade_interval
-			if(previous_desired_backlight_brightness!=desired_backlight_brightness){
-				previous_desired_backlight_brightness=desired_backlight_brightness;
-				fade_interval=configured_fade_duration/abs(current_backlight_brightness-desired_backlight_brightness);
+		// If the backlight is already off, wait to be signaled to turn it back on
+		if(desired_backlight_brightness==0&&current_backlight_brightness==desired_backlight_brightness){
+			pthread_cond_wait(&timer_cond,&timer_mutex);
+		}
+		
+		if(current_backlight_brightness!=desired_backlight_brightness){
+			// If the current brightness is not the desired brightness, fade in/out
+			if(timespec_cmp(current_time,next_fade_step_time)>=0){
+				memcpy(&next_fade_step_time,&current_time,sizeof(struct timespec));
+				timespec_add_usec(&next_fade_step_time,fade_interval);
+				
+				// If the desired_backlight_brightness has changed since the last iteration, calculate a new fade_interval
+				if(previous_desired_backlight_brightness!=desired_backlight_brightness){
+					previous_desired_backlight_brightness=desired_backlight_brightness;
+					fade_interval=configured_fade_duration/abs(current_backlight_brightness-desired_backlight_brightness);
+				}
+				
+				if(current_backlight_brightness>desired_backlight_brightness){
+					current_backlight_brightness--;
+				}else{
+					current_backlight_brightness++;
+				}
+				set_backlight_brightness(current_backlight_brightness);
 			}
 			
-			if(current_backlight_brightness>desired_backlight_brightness){
-				current_backlight_brightness--;
+			if(current_backlight_brightness>desired_backlight_brightness||timespec_cmp(backlight_off_time,next_fade_step_time)>=0){
+				// If this is a fade out or next_fade_step_time is sooner than backlight_off_time, wait until next_fade_step_time
+				pthread_cond_timedwait(&timer_cond,&timer_mutex,&next_fade_step_time);
 			}else{
-				current_backlight_brightness++;
+				// If this is a fade in and backlight_off_time is somehow sooner than next_fade_step_time, wait until backlight_off_time
+				pthread_cond_timedwait(&timer_cond,&timer_mutex,&backlight_off_time);
 			}
-			set_backlight_brightness(current_backlight_brightness);
-			usleep(fade_interval);
-			
-			pthread_mutex_lock(&timer_mutex);
+		}else{
+			// Otherwise, wait until backlight_off_time
+			pthread_cond_timedwait(&timer_cond,&timer_mutex,&backlight_off_time);
 		}
 	}
 	
