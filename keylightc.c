@@ -177,8 +177,10 @@ void *input_handler(void *arg){
 		}
 		
 		if(poll(found_device_pollfds,found_device_count,-1)==-1){
-			fprintf(stderr,"Poll failure‽\n");
-			exit(EXIT_FAILURE);
+			if(errno!=EINTR){
+				fprintf(stderr,"Poll failure‽\n");
+				exit(EXIT_FAILURE);
+			}
 		}
 		
 		new_event=false;
@@ -186,8 +188,10 @@ void *input_handler(void *arg){
 			if(found_device_pollfds[i].revents&POLLIN){
 				read_bytes=read(found_device_pollfds[i].fd,input_event,sizeof(input_event));
 				if(read_bytes==-1){
-					fprintf(stderr,"Read failure‽\n");
-					exit(EXIT_FAILURE);
+					if(errno!=EINTR){
+						fprintf(stderr,"Read failure‽\n");
+						exit(EXIT_FAILURE);
+					}
 				}
 				
 				// Get the index of the last event, which will be the latest event for this device
@@ -315,7 +319,6 @@ int main(const int argc,char **argv){
 	// Set up the exit handler
 	struct sigaction exit_action;
 	exit_action.sa_handler=exit_handler;
-	exit_action.sa_flags=SA_RESTART;
 	sigaction(SIGINT,&exit_action,NULL);
 	sigaction(SIGTERM,&exit_action,NULL);
 	
