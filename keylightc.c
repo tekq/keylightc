@@ -27,6 +27,7 @@
 #include <limits.h>
 #include <linux/input.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -68,6 +69,11 @@ static int desired_backlight_brightness=0;
 static struct timespec backlight_off_time;
 
 static FILE *backlight_brightness_file;
+
+// Separate flags are required for the input and main threads to prevent a hang due to the main thread
+// shutting down before the input thread and causing the latter to hang on pthread_mutex_lock().
+static bool exit_requested=false;
+static bool main_thread_exit=false;
 
 static int is_event_device(const struct dirent *dir){
 	return strncmp(EVENT_DEV_NAME,dir->d_name,5)==0;
@@ -155,7 +161,17 @@ void *input_handler(void *arg){
 	struct timespec event_time={};
 	struct timespec latest_event_time={};
 	bool new_event;
+	
 	while(true){
+		// If an exit is requested, signal the main thread and break out of the loop
+		if(exit_requested){
+			pthread_mutex_lock(&timer_mutex);
+			main_thread_exit=true;
+			pthread_cond_signal(&timer_cond);
+			pthread_mutex_unlock(&timer_mutex);
+			break;
+		}
+		
 		if(poll(found_device_pollfds,found_device_count,-1)==-1){
 			fprintf(stderr,"Poll failure‽\n");
 			exit(EXIT_FAILURE);
@@ -201,6 +217,8 @@ void *input_handler(void *arg){
 			usleep(500000);
 		}
 	}
+	
+	return NULL;
 }
 
 static int string_to_int(int *result,const int min,const int max,const char *string){
@@ -225,6 +243,10 @@ static int usage(){
 	printf("  --timeout\t\tactivity timeout in seconds (1-%d) [default=%d]\n",INT_MAX,DEFAULT_BACKLIGHT_ON_SECONDS);
 	printf("  --help\t\tdisplay usage information\n");
 	return EXIT_FAILURE;
+}
+
+static void exit_handler(int signal_number){
+	exit_requested=true;
 }
 
 static const struct option long_options[]={
@@ -289,6 +311,20 @@ int main(const int argc,char **argv){
 	// Create the input thread only after locking timer_mutex to ensure it doesn't send us any events before we are ready
 	pthread_create(&input_thread,NULL,input_handler,NULL);
 	
+	// Set up the exit handler
+	struct sigaction exit_action;
+	exit_action.sa_handler=exit_handler;
+	exit_action.sa_flags=SA_RESTART;
+	sigaction(SIGINT,&exit_action,NULL);
+	sigaction(SIGTERM,&exit_action,NULL);
+	
+	// Block the exit signals on the main thread to force them to be handled by the input thread
+	sigset_t mask;
+	sigemptyset(&mask);
+	sigaddset(&mask,SIGINT);
+	sigaddset(&mask,SIGTERM);
+	pthread_sigmask(SIG_BLOCK,&mask,NULL);
+	
 	set_backlight_brightness(0);
 	int current_backlight_brightness=0;
 	int previous_desired_backlight_brightness=-1;
@@ -298,6 +334,10 @@ int main(const int argc,char **argv){
 	
 	while(true){
 		clock_gettime(CLOCK_MONOTONIC,&current_time);
+		
+		if(main_thread_exit){
+			break;
+		}
 		
 		// If the backlight is on and current_time is greater than or equal to backlight_off_time, turn the backlight off
 		if(desired_backlight_brightness!=0&&timespec_cmp(current_time,backlight_off_time)>=0){
@@ -342,6 +382,9 @@ int main(const int argc,char **argv){
 			pthread_cond_timedwait(&timer_cond,&timer_mutex,&backlight_off_time);
 		}
 	}
+	
+	pthread_join(input_thread,NULL);
+	set_backlight_brightness(0);
 	
 	return EXIT_SUCCESS;
 }
