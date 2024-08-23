@@ -53,6 +53,15 @@ static const char *search_devices[SEARCH_DEVICE_COUNT]={
 	"AT Translated Set 2 keyboard",
 	"PIXA3854:00 093A:0274 Touchpad",
 };
+
+static const struct option long_options[]={
+	{"brightness",required_argument,0,'b'},
+	{"fadeduration",required_argument,0,'f'},
+	{"timeout",required_argument,0,'t'},
+	{"help",no_argument,0,'h'},
+	{},
+};
+
 static struct pollfd found_device_pollfds[SEARCH_DEVICE_COUNT];
 static int found_device_count=0;
 
@@ -68,7 +77,7 @@ static int configured_fade_duration=DEFAULT_FADE_DURATION;
 static int desired_backlight_brightness=0;
 static struct timespec backlight_off_time;
 
-static FILE *backlight_brightness_file;
+static FILE *backlight_brightness_file=NULL;
 
 // Separate flags are required for the input and main threads to prevent a hang due to the main thread
 // shutting down before the input thread and causing the latter to hang on pthread_mutex_lock().
@@ -130,16 +139,6 @@ static int get_input_fds(struct pollfd *pollfds){
 	return EXIT_SUCCESS;
 }
 
-static int timespec_cmp(const struct timespec ts1,const struct timespec ts2){
-	if(ts1.tv_sec==ts2.tv_sec&&ts1.tv_nsec==ts2.tv_nsec){
-		return 0;
-	}else if((ts1.tv_sec>ts2.tv_sec)||(ts1.tv_sec==ts2.tv_sec&&ts1.tv_nsec>ts2.tv_nsec)){
-		return 1;
-	}else{
-		return -1;
-	}
-}
-
 static void timespec_add_usec(struct timespec *timespec,const int usec){
 	timespec->tv_sec+=usec/USEC_PER_SEC;
 	timespec->tv_nsec+=(usec%USEC_PER_SEC)*NSEC_PER_USEC;
@@ -149,9 +148,14 @@ static void timespec_add_usec(struct timespec *timespec,const int usec){
 	}
 }
 
-static void set_backlight_brightness(const int brightness){
-	fprintf(backlight_brightness_file,"%d",brightness);
-	fflush(backlight_brightness_file);
+static int timespec_cmp(const struct timespec ts1,const struct timespec ts2){
+	if(ts1.tv_sec==ts2.tv_sec&&ts1.tv_nsec==ts2.tv_nsec){
+		return 0;
+	}else if((ts1.tv_sec>ts2.tv_sec)||(ts1.tv_sec==ts2.tv_sec&&ts1.tv_nsec>ts2.tv_nsec)){
+		return 1;
+	}else{
+		return -1;
+	}
 }
 
 void *input_handler(void *arg){
@@ -221,6 +225,15 @@ void *input_handler(void *arg){
 	return NULL;
 }
 
+static void exit_handler(int signal_number){
+	exit_requested=true;
+}
+
+static void set_backlight_brightness(const int brightness){
+	fprintf(backlight_brightness_file,"%d",brightness);
+	fflush(backlight_brightness_file);
+}
+
 static int string_to_int(int *result,const int min,const int max,const char *string){
 	errno=0;
 	const long long_value=strtol(string,NULL,10);
@@ -244,18 +257,6 @@ static int usage(){
 	printf("  --help\t\tdisplay usage information\n");
 	return EXIT_FAILURE;
 }
-
-static void exit_handler(int signal_number){
-	exit_requested=true;
-}
-
-static const struct option long_options[]={
-	{"brightness",required_argument,0,'b'},
-	{"fadeduration",required_argument,0,'f'},
-	{"timeout",required_argument,0,'t'},
-	{"help",no_argument,0,'h'},
-	{},
-};
 
 int main(const int argc,char **argv){
 	int option;
