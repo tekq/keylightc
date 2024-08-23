@@ -48,6 +48,7 @@ static const char *search_devices[SEARCH_DEVICE_COUNT]={
 	"AT Translated Set 2 keyboard",
 	"PIXA3854:00 093A:0274 Touchpad",
 };
+static struct pollfd found_device_pollfds[SEARCH_DEVICE_COUNT];
 static int found_device_count=0;
 
 static pthread_t input_thread;
@@ -77,7 +78,7 @@ static bool string_in_array(const char *string,const char *array[],int array_len
 	return false;
 }
 
-static int get_input_fds(struct pollfd *fds){
+static int get_input_fds(struct pollfd *pollfds){
 	struct dirent **namelist={};
 	int device_count=scandir(DEV_INPUT_EVENT,&namelist,is_event_device,alphasort);
 	int clock_type=CLOCK_MONOTONIC;
@@ -101,8 +102,8 @@ static int get_input_fds(struct pollfd *fds){
 		if(string_in_array(device_name,search_devices,SEARCH_DEVICE_COUNT)){
 			ioctl(fd,EVIOCSCLOCKID,&clock_type);
 			printf("Using device %s:\t%s\n",device_filename,device_name);
-			fds[found_device_count].fd=fd;
-			fds[found_device_count].events=POLLIN;
+			pollfds[found_device_count].fd=fd;
+			pollfds[found_device_count].events=POLLIN;
 			found_device_count++;
 		}else{
 			close(fd);
@@ -135,11 +136,6 @@ static void set_backlight_brightness(int brightness){
 }
 
 void *input_handler(void *arg){
-	struct pollfd fds[SEARCH_DEVICE_COUNT];
-	if(get_input_fds(fds)){
-		exit(EXIT_FAILURE);
-	}
-	
 	int i;
 	int read_bytes;
 	struct input_event input_event[256];
@@ -147,15 +143,15 @@ void *input_handler(void *arg){
 	struct timespec latest_event_time={};
 	bool new_event;
 	while(true){
-		if(poll(fds,found_device_count,-1)==-1){
+		if(poll(found_device_pollfds,found_device_count,-1)==-1){
 			fprintf(stderr,"Poll failure‽\n");
 			exit(EXIT_FAILURE);
 		}
 		
 		new_event=false;
 		for(i=0;i<found_device_count;i++){
-			if(fds[i].revents&POLLIN){
-				read_bytes=read(fds[i].fd,input_event,sizeof(input_event));
+			if(found_device_pollfds[i].revents&POLLIN){
+				read_bytes=read(found_device_pollfds[i].fd,input_event,sizeof(input_event));
 				if(read_bytes==-1){
 					fprintf(stderr,"Read failure‽\n");
 					exit(EXIT_FAILURE);
@@ -264,7 +260,10 @@ int main(const int argc,char **argv){
 		fprintf(stderr,"Failed to open backlight device!  Are you running Linux kernel 6.11 or later?\n");
 		return EXIT_FAILURE;
 	}
-	set_backlight_brightness(0);
+	
+	if(get_input_fds(found_device_pollfds)){
+		exit(EXIT_FAILURE);
+	}
 	
 	pthread_condattr_t timer_condattr;
 	pthread_condattr_init(&timer_condattr);
@@ -277,6 +276,7 @@ int main(const int argc,char **argv){
 	// Create the input thread only after locking timer_mutex to ensure it doesn't send us any events before we are ready
 	pthread_create(&input_thread,NULL,input_handler,NULL);
 	
+	set_backlight_brightness(0);
 	int current_backlight_brightness=0;
 	int previous_desired_backlight_brightness=-1;
 	int fade_interval=0;
