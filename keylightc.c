@@ -36,16 +36,15 @@
 #include <unistd.h>
 
 #define NSEC_PER_SEC 1000000000
-#define USEC_PER_SEC 1000000
 #define NSEC_PER_USEC 1000
 
 #define DEV_INPUT_EVENT "/dev/input"
 #define EVENT_DEV_NAME "event"
 
 #define BACKLIGHT_DEVICE "/sys/class/leds/chromeos::kbd_backlight/brightness"
-#define DEFAULT_BACKLIGHT_ON_SECONDS 10
+#define DEFAULT_BACKLIGHT_ON_SEC 10
 #define DEFAULT_BACKLIGHT_BRIGHTNESS 30
-#define DEFAULT_FADE_DURATION 100000
+#define DEFAULT_FADE_DURATION_USEC 100000
 
 // This must be set exactly to the number of elements in the array or else a segfault will occur
 #define SEARCH_DEVICE_COUNT 2
@@ -70,9 +69,9 @@ static pthread_t input_thread;
 static pthread_cond_t timer_cond;
 static pthread_mutex_t timer_mutex;
 
-static int configured_backlight_on_seconds=DEFAULT_BACKLIGHT_ON_SECONDS;
+static int configured_backlight_on_sec=DEFAULT_BACKLIGHT_ON_SEC;
 static int configured_backlight_brightness=DEFAULT_BACKLIGHT_BRIGHTNESS;
-static int configured_fade_duration=DEFAULT_FADE_DURATION;
+static int configured_fade_duration_nsec=DEFAULT_FADE_DURATION_USEC*NSEC_PER_USEC;
 
 static int desired_backlight_brightness=0;
 static struct timespec backlight_off_time;
@@ -139,9 +138,9 @@ static int get_input_fds(struct pollfd *pollfds){
 	return EXIT_SUCCESS;
 }
 
-static void timespec_add_usec(struct timespec *timespec,const int usec){
-	timespec->tv_sec+=usec/USEC_PER_SEC;
-	timespec->tv_nsec+=(usec%USEC_PER_SEC)*NSEC_PER_USEC;
+static void timespec_add_nsec(struct timespec *timespec,const long nsec){
+	timespec->tv_sec+=nsec/NSEC_PER_SEC;
+	timespec->tv_nsec+=nsec%NSEC_PER_SEC;
 	if(timespec->tv_nsec>=NSEC_PER_SEC){
 		timespec->tv_sec+=1;
 		timespec->tv_nsec-=NSEC_PER_SEC;
@@ -206,8 +205,8 @@ void *input_handler(void *arg){
 		
 		if(new_event){
 			pthread_mutex_lock(&timer_mutex);
-			// Set backlight_off_time to latest_event_time plus configured_backlight_on_seconds
-			backlight_off_time.tv_sec=latest_event_time.tv_sec+configured_backlight_on_seconds;
+			// Set backlight_off_time to latest_event_time plus configured_backlight_on_sec
+			backlight_off_time.tv_sec=latest_event_time.tv_sec+configured_backlight_on_sec;
 			backlight_off_time.tv_nsec=latest_event_time.tv_nsec;
 			
 			// If the backlight is currently off, signal the main thread to turn it on
@@ -253,8 +252,8 @@ static int usage(){
 	printf("keylightc - automatic keyboard backlight daemon for Framework laptops\n\n");
 	printf("Options:\n");
 	printf("  --brightness\t\tbrightness level when active (1-100) [default=%d]\n",DEFAULT_BACKLIGHT_BRIGHTNESS);
-	printf("  --fadeduration\tfade time in microseconds (1-1000000) [default=%d]\n",DEFAULT_FADE_DURATION);
-	printf("  --timeout\t\tactivity timeout in seconds (1-%d) [default=%d]\n",INT_MAX,DEFAULT_BACKLIGHT_ON_SECONDS);
+	printf("  --fadeduration\tfade time in microseconds (1-1000000) [default=%d]\n",DEFAULT_FADE_DURATION_USEC);
+	printf("  --timeout\t\tactivity timeout in seconds (1-%d) [default=%d]\n",INT_MAX,DEFAULT_BACKLIGHT_ON_SEC);
 	printf("  --help\t\tdisplay usage information\n");
 	return EXIT_FAILURE;
 }
@@ -272,12 +271,13 @@ int main(const int argc,char **argv){
 				}
 				break;
 			case 'f':
-				if(string_to_int(&configured_fade_duration,1,1000000,optarg)){
+				if(string_to_int(&configured_fade_duration_nsec,1,1000000,optarg)){
 					return usage();
 				}
+				configured_fade_duration_nsec*=NSEC_PER_USEC;
 				break;
 			case 't':
-				if(string_to_int(&configured_backlight_on_seconds,1,INT_MAX,optarg)){
+				if(string_to_int(&configured_backlight_on_sec,1,INT_MAX,optarg)){
 					return usage();
 				}
 				break;
@@ -330,7 +330,7 @@ int main(const int argc,char **argv){
 	
 	int current_backlight_brightness=0;
 	int previous_desired_backlight_brightness=-1;
-	int fade_interval=0;
+	int fade_interval_nsec=0;
 	struct timespec next_fade_step_time={};
 	
 	while(true){
@@ -362,15 +362,15 @@ int main(const int argc,char **argv){
 				}
 				set_backlight_brightness(current_backlight_brightness);
 				
-				// If the desired_backlight_brightness has changed since the last iteration, calculate a new fade_interval
+				// If the desired_backlight_brightness has changed since the last iteration, calculate a new fade_interval_nsec
 				if(previous_desired_backlight_brightness!=desired_backlight_brightness){
 					previous_desired_backlight_brightness=desired_backlight_brightness;
-					fade_interval=configured_fade_duration/abs(current_backlight_brightness-desired_backlight_brightness);
+					fade_interval_nsec=configured_fade_duration_nsec/abs(current_backlight_brightness-desired_backlight_brightness);
 				}
 				
-				// Calculate next_fade_step_time based on current_time and fade_interval
+				// Calculate next_fade_step_time based on current_time and fade_interval_nsec
 				memcpy(&next_fade_step_time,&current_time,sizeof(struct timespec));
-				timespec_add_usec(&next_fade_step_time,fade_interval);
+				timespec_add_nsec(&next_fade_step_time,fade_interval_nsec);
 			}
 			
 			if(current_backlight_brightness>desired_backlight_brightness||timespec_cmp(backlight_off_time,next_fade_step_time)>=0){
