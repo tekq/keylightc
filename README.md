@@ -11,14 +11,27 @@ It is like [keylightd] except in C and with no dependencies!
 [Framework]: https://frame.work/
 [keylightd]: https://github.com/jonas-schievink/keylightd
 
-## Installation
+## Package Installation
+
+It is highly recommended to install a package if one is available.  Currently, a [PPA] is available for Ubuntu.  To set it up, run:
+
+```shell
+$ sudo add-apt-repository ppa:mamarley/keylightc-git
+$ sudo apt update
+$ sudo apt install keylightc
+```
+
+[PPA]: https://launchpad.net/~mamarley/+archive/ubuntu/keylightc-git
+
+## Source Installation
 
 To install from source, clone the repository and run:
 
 ```shell
 $ make
 $ sudo make install
-$ systemctl enable --now keylightc.service
+$ sudo udevadm trigger -c add -s leds
+$ sudo systemctl enable --now keylightc.service
 ```
 
 `keylightc` has no dependencies you have to install first.  Really.
@@ -27,7 +40,9 @@ It uses kernel event data directly and does not have any dependency on a desktop
 
 ## Running
 
-Note that `keylightc` needs to be run as root, since it directly accesses kernel event data and sysfs interfaces.
+Note that `keylightc` must either be run as root or the included `90-keylightc.rules` file placed in `/usr/lib/udev/rules.d`
+and `sudo udevadm trigger -c add -s leds` executed before `keylightc` is run as a user with the `input` group.
+Using the .deb package or executing the source installation commands above sets this up for you.
 
 `keylightc` takes the following command-line arguments:
 

@@ -1,0 +1,17 @@
+#!/bin/sh
+
+# This maintainer script does not set -e on purpose:
+#  the package should not be put in a configuration-failed state
+#  should the udev rules fail to be reloaded, for any reason.
+set -u
+
+# Reload rules
+udevadm control --reload
+
+# Deal with already-present devices
+udevadm trigger -c add -s leds
+
+# Exit on errors for debhelper actions
+set -e
+
+#DEBHELPER#

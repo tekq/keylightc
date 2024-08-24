@@ -1,0 +1,2 @@
+ACTION=="add", SUBSYSTEM=="leds", RUN+="/usr/bin/chgrp input /sys/class/leds/%k/brightness"
+ACTION=="add", SUBSYSTEM=="leds", RUN+="/usr/bin/chmod g+w /sys/class/leds/%k/brightness"

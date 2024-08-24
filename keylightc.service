@@ -1,12 +1,13 @@
 [Unit]
 Description=Keyboard backlight daemon
-
 StartLimitIntervalSec=500
 StartLimitBurst=5
 
 [Service]
 Type=exec
 ExecStart=/usr/bin/keylightc
+DynamicUser=yes
+SupplementaryGroups=input
 Restart=on-failure
 RestartSec=1s
 

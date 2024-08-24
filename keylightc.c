@@ -135,7 +135,7 @@ static int get_input_fds(struct pollfd *pollfds){
 	}
 	
 	if(found_device_count==0){
-		fprintf(stderr,"No matching input devices found!\n");
+		fprintf(stderr,"No matching input devices found!  Check permissions.\n");
 		return EXIT_FAILURE;
 	}
 	
@@ -287,14 +287,9 @@ int main(const int argc,char **argv){
 		}
 	}
 	
-	if(getuid()!=0){
-		fprintf(stderr,"Must be run as root!\n");
-		return EXIT_FAILURE;
-	}
-	
 	backlight_brightness_file=fopen(BACKLIGHT_DEVICE,"w");
 	if(backlight_brightness_file==NULL){
-		fprintf(stderr,"Failed to open backlight device!  Are you running Linux kernel 6.11 or later?\n");
+		fprintf(stderr,"Failed to open backlight device!  Check permissions and ensure you are running Linux kernel 6.11 or later.\n");
 		return EXIT_FAILURE;
 	}
 	

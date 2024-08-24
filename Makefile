@@ -4,3 +4,4 @@ all:
 install:
 	install -m 755 -D -t $(DESTDIR)/usr/bin/ keylightc
 	install -m 644 -D -t $(DESTDIR)/usr/lib/systemd/system/ keylightc.service
+	install -m 644 -D -t $(DESTDIR)/usr/lib/udev/rules.d/ 90-keylightc.rules
