@@ -159,12 +159,7 @@ static int timespec_cmp(const struct timespec ts1,const struct timespec ts2){
 }
 
 void *input_handler(void *arg){
-	int i;
-	int read_bytes;
-	struct input_event input_event[256];
-	struct timespec event_time={};
 	struct timespec latest_event_time={};
-	bool new_event;
 	
 	while(true){
 		// If an exit is requested, signal the main thread and break out of the loop
@@ -183,10 +178,11 @@ void *input_handler(void *arg){
 			}
 		}
 		
-		new_event=false;
-		for(i=0;i<found_device_count;i++){
+		bool new_event=false;
+		for(int i=0;i<found_device_count;i++){
 			if(found_device_pollfds[i].revents&POLLIN){
-				read_bytes=read(found_device_pollfds[i].fd,input_event,sizeof(input_event));
+				struct input_event input_event[256];
+				int read_bytes=read(found_device_pollfds[i].fd,input_event,sizeof(input_event));
 				if(read_bytes==-1){
 					if(errno!=EINTR){
 						fprintf(stderr,"Read failure‽\n");
@@ -198,6 +194,7 @@ void *input_handler(void *arg){
 				int last_event_index=read_bytes/sizeof(struct input_event)-1;
 				
 				// Convert the event time into a timespec and update latest_event_time if it is more recent
+				struct timespec event_time;
 				event_time.tv_sec=input_event[last_event_index].input_event_sec;
 				event_time.tv_nsec=input_event[last_event_index].input_event_usec*NSEC_PER_USEC;
 				if(timespec_cmp(event_time,latest_event_time)>=0){
@@ -330,13 +327,14 @@ int main(const int argc,char **argv){
 	pthread_sigmask(SIG_BLOCK,&mask,NULL);
 	
 	set_backlight_brightness(0);
+	
 	int current_backlight_brightness=0;
 	int previous_desired_backlight_brightness=-1;
 	int fade_interval=0;
-	struct timespec current_time={};
 	struct timespec next_fade_step_time={};
 	
 	while(true){
+		struct timespec current_time;
 		clock_gettime(CLOCK_MONOTONIC,&current_time);
 		
 		if(main_thread_exit){
@@ -372,6 +370,7 @@ int main(const int argc,char **argv){
 					current_backlight_brightness++;
 				}
 				set_backlight_brightness(current_backlight_brightness);
+
 			}
 			
 			if(current_backlight_brightness>desired_backlight_brightness||timespec_cmp(backlight_off_time,next_fade_step_time)>=0){
