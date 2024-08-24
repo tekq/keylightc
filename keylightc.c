@@ -355,8 +355,12 @@ int main(const int argc,char **argv){
 		if(current_backlight_brightness!=desired_backlight_brightness){
 			// If the current brightness is not the desired brightness, fade in/out
 			if(timespec_cmp(current_time,next_fade_step_time)>=0){
-				memcpy(&next_fade_step_time,&current_time,sizeof(struct timespec));
-				timespec_add_usec(&next_fade_step_time,fade_interval);
+				if(current_backlight_brightness>desired_backlight_brightness){
+					current_backlight_brightness--;
+				}else{
+					current_backlight_brightness++;
+				}
+				set_backlight_brightness(current_backlight_brightness);
 				
 				// If the desired_backlight_brightness has changed since the last iteration, calculate a new fade_interval
 				if(previous_desired_backlight_brightness!=desired_backlight_brightness){
@@ -364,13 +368,9 @@ int main(const int argc,char **argv){
 					fade_interval=configured_fade_duration/abs(current_backlight_brightness-desired_backlight_brightness);
 				}
 				
-				if(current_backlight_brightness>desired_backlight_brightness){
-					current_backlight_brightness--;
-				}else{
-					current_backlight_brightness++;
-				}
-				set_backlight_brightness(current_backlight_brightness);
-
+				// Calculate next_fade_step_time based on current_time and fade_interval
+				memcpy(&next_fade_step_time,&current_time,sizeof(struct timespec));
+				timespec_add_usec(&next_fade_step_time,fade_interval);
 			}
 			
 			if(current_backlight_brightness>desired_backlight_brightness||timespec_cmp(backlight_off_time,next_fade_step_time)>=0){
