@@ -222,7 +222,7 @@ void *input_handler(void *arg){
 			pthread_mutex_unlock(&timer_mutex);
 			
 			// Sleep here to prevent spinning and using too much CPU
-			usleep(500000);
+			nanosleep(&(struct timespec){.tv_nsec=500000000},NULL);
 		}
 	}
 	
