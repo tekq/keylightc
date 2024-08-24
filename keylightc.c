@@ -83,6 +83,10 @@ static FILE *backlight_brightness_file=NULL;
 static bool exit_requested=false;
 static bool main_thread_exit=false;
 
+static void exit_handler(int signal_number){
+	exit_requested=true;
+}
+
 static int is_event_device(const struct dirent *dir){
 	return strncmp(EVENT_DEV_NAME,dir->d_name,5)==0;
 }
@@ -138,6 +142,24 @@ static int get_input_fds(struct pollfd *pollfds){
 	return EXIT_SUCCESS;
 }
 
+static void set_backlight_brightness(const int brightness){
+	fprintf(backlight_brightness_file,"%d",brightness);
+	fflush(backlight_brightness_file);
+}
+
+static int string_to_int(int *result,const int min,const int max,const char *string){
+	errno=0;
+	const long long_value=strtol(string,NULL,10);
+	if(errno!=0){
+		return errno;
+	}
+	if(long_value>=min&&long_value<=max){
+		*result=(int)long_value;
+		return EXIT_SUCCESS;
+	}
+	return EXIT_FAILURE;
+}
+
 static void timespec_add_nsec(struct timespec *timespec,const long nsec){
 	timespec->tv_sec+=nsec/NSEC_PER_SEC;
 	timespec->tv_nsec+=nsec%NSEC_PER_SEC;
@@ -155,6 +177,17 @@ static int timespec_cmp(const struct timespec ts1,const struct timespec ts2){
 	}else{
 		return -1;
 	}
+}
+
+static int usage(){
+	printf("Usage: keylightc [--brightness <brightness>] [--fadeduration <fadeduration>] [--timeout <timeout>]\n\n");
+	printf("keylightc - automatic keyboard backlight daemon for Framework laptops\n\n");
+	printf("Options:\n");
+	printf("  --brightness\t\tbrightness level when active (1-100) [default=%d]\n",DEFAULT_BACKLIGHT_BRIGHTNESS);
+	printf("  --fadeduration\tfade time in microseconds (1-1000000) [default=%d]\n",DEFAULT_FADE_DURATION_USEC);
+	printf("  --timeout\t\tactivity timeout in seconds (1-%d) [default=%d]\n",INT_MAX,DEFAULT_BACKLIGHT_ON_SEC);
+	printf("  --help\t\tdisplay usage information\n");
+	return EXIT_FAILURE;
 }
 
 void *input_handler(void *arg){
@@ -223,39 +256,6 @@ void *input_handler(void *arg){
 	}
 	
 	return NULL;
-}
-
-static void exit_handler(int signal_number){
-	exit_requested=true;
-}
-
-static void set_backlight_brightness(const int brightness){
-	fprintf(backlight_brightness_file,"%d",brightness);
-	fflush(backlight_brightness_file);
-}
-
-static int string_to_int(int *result,const int min,const int max,const char *string){
-	errno=0;
-	const long long_value=strtol(string,NULL,10);
-	if(errno!=0){
-		return errno;
-	}
-	if(long_value>=min&&long_value<=max){
-		*result=(int)long_value;
-		return EXIT_SUCCESS;
-	}
-	return EXIT_FAILURE;
-}
-
-static int usage(){
-	printf("Usage: keylightc [--brightness <brightness>] [--fadeduration <fadeduration>] [--timeout <timeout>]\n\n");
-	printf("keylightc - automatic keyboard backlight daemon for Framework laptops\n\n");
-	printf("Options:\n");
-	printf("  --brightness\t\tbrightness level when active (1-100) [default=%d]\n",DEFAULT_BACKLIGHT_BRIGHTNESS);
-	printf("  --fadeduration\tfade time in microseconds (1-1000000) [default=%d]\n",DEFAULT_FADE_DURATION_USEC);
-	printf("  --timeout\t\tactivity timeout in seconds (1-%d) [default=%d]\n",INT_MAX,DEFAULT_BACKLIGHT_ON_SEC);
-	printf("  --help\t\tdisplay usage information\n");
-	return EXIT_FAILURE;
 }
 
 int main(const int argc,char **argv){
