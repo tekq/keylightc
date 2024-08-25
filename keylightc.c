@@ -28,10 +28,12 @@
 #include <linux/input.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <sys/poll.h>
 #include <unistd.h>
 
@@ -83,6 +85,24 @@ static FILE *backlight_brightness_file=NULL;
 static bool exit_requested=false;
 static bool main_thread_exit=false;
 
+static bool is_daemon;
+
+static void log_write(int priority,const char *format,...){
+	va_list args;
+	va_start(args,format);
+	if(is_daemon){
+		vsyslog(priority,format,args);
+	}else{
+		FILE *target=stdout;
+		if(priority<LOG_WARNING){
+			target=stderr;
+		}
+		vfprintf(target,format,args);
+		fprintf(target,"\n");
+	}
+	va_end(args);
+}
+
 static void exit_handler(int signal_number){
 	exit_requested=true;
 }
@@ -105,7 +125,7 @@ static int get_input_fds(struct pollfd *pollfds){
 	int device_count=scandir(DEV_INPUT_EVENT,&namelist,is_event_device,alphasort);
 	int clock_type=CLOCK_MONOTONIC;
 	if(device_count<=0){
-		fprintf(stderr,"%s directory contains no devices!\n",DEV_INPUT_EVENT);
+		log_write(LOG_ERR,"%s directory contains no devices!",DEV_INPUT_EVENT);
 		return EXIT_FAILURE;
 	}
 	
@@ -123,7 +143,7 @@ static int get_input_fds(struct pollfd *pollfds){
 		
 		if(string_in_array(device_name,search_devices,SEARCH_DEVICE_COUNT)){
 			ioctl(fd,EVIOCSCLOCKID,&clock_type);
-			printf("Using device %s:\t%s\n",device_filename,device_name);
+			log_write(LOG_INFO,"Using device %s:\t%s",device_filename,device_name);
 			pollfds[found_device_count].fd=fd;
 			pollfds[found_device_count].events=POLLIN;
 			found_device_count++;
@@ -135,7 +155,7 @@ static int get_input_fds(struct pollfd *pollfds){
 	}
 	
 	if(found_device_count==0){
-		fprintf(stderr,"No matching input devices found!  Check permissions.\n");
+		log_write(LOG_ERR,"No matching input devices found!  Check permissions.");
 		return EXIT_FAILURE;
 	}
 	
@@ -180,13 +200,13 @@ static int timespec_cmp(const struct timespec ts1,const struct timespec ts2){
 }
 
 static int usage(){
-	printf("Usage: keylightc [--brightness <brightness>] [--fadeduration <fadeduration>] [--timeout <timeout>]\n\n");
-	printf("keylightc - automatic keyboard backlight daemon for Framework laptops\n\n");
-	printf("Options:\n");
-	printf("  --brightness\t\tbrightness level when active (1-100) [default=%d]\n",DEFAULT_BACKLIGHT_BRIGHTNESS);
-	printf("  --fadeduration\tfade time in microseconds (1-1000000) [default=%d]\n",DEFAULT_FADE_DURATION_USEC);
-	printf("  --timeout\t\tactivity timeout in seconds (1-%d) [default=%d]\n",INT_MAX,DEFAULT_BACKLIGHT_ON_SEC);
-	printf("  --help\t\tdisplay usage information\n");
+	log_write(LOG_NOTICE,"Usage: keylightc [--brightness <brightness>] [--fadeduration <fadeduration>] [--timeout <timeout>]");
+	log_write(LOG_NOTICE,"keylightc - automatic keyboard backlight daemon for Framework laptops");
+	log_write(LOG_NOTICE,"Options:");
+	log_write(LOG_NOTICE,"  --brightness\t\tbrightness level when active (1-100) [default=%d]",DEFAULT_BACKLIGHT_BRIGHTNESS);
+	log_write(LOG_NOTICE,"  --fadeduration\tfade time in microseconds (1-1000000) [default=%d]",DEFAULT_FADE_DURATION_USEC);
+	log_write(LOG_NOTICE,"  --timeout\t\tactivity timeout in seconds (1-%d) [default=%d]",INT_MAX,DEFAULT_BACKLIGHT_ON_SEC);
+	log_write(LOG_NOTICE,"  --help\t\tdisplay usage information");
 	return EXIT_FAILURE;
 }
 
@@ -205,7 +225,7 @@ void *input_handler(void *arg){
 		
 		if(poll(found_device_pollfds,found_device_count,-1)==-1){
 			if(errno!=EINTR){
-				fprintf(stderr,"Poll failure‽\n");
+				log_write(LOG_ERR,"Poll failure‽");
 				exit(EXIT_FAILURE);
 			}
 		}
@@ -217,7 +237,7 @@ void *input_handler(void *arg){
 				int read_bytes=read(found_device_pollfds[i].fd,input_event,sizeof(input_event));
 				if(read_bytes==-1){
 					if(errno!=EINTR){
-						fprintf(stderr,"Read failure‽\n");
+						log_write(LOG_ERR,"Read failure‽");
 						exit(EXIT_FAILURE);
 					}
 				}
@@ -244,7 +264,7 @@ void *input_handler(void *arg){
 			
 			// If the backlight is currently off, signal the main thread to turn it on
 			if(desired_backlight_brightness==0){
-				printf("Turning backlight on\n");
+				log_write(LOG_INFO,"Turning backlight on");
 				desired_backlight_brightness=configured_backlight_brightness;
 				pthread_cond_signal(&timer_cond);
 			}
@@ -259,6 +279,11 @@ void *input_handler(void *arg){
 }
 
 int main(const int argc,char **argv){
+	is_daemon=!isatty(1);
+	if(is_daemon){
+		openlog("keylightc",LOG_CONS|LOG_PID|LOG_NDELAY,LOG_DAEMON);
+	}
+	
 	int option;
 	while((option=getopt_long(argc,argv,"",long_options,NULL))!=EOF){
 		switch(option){
@@ -289,13 +314,17 @@ int main(const int argc,char **argv){
 	
 	backlight_brightness_file=fopen(BACKLIGHT_DEVICE,"w");
 	if(backlight_brightness_file==NULL){
-		fprintf(stderr,"Failed to open backlight device!  Check permissions and ensure you are running Linux kernel 6.11 or later.\n");
+		log_write(LOG_ERR,"Failed to open backlight device!  Check permissions and ensure you are running Linux kernel 6.11 or later.");
 		return EXIT_FAILURE;
 	}
 	
 	if(get_input_fds(found_device_pollfds)){
 		exit(EXIT_FAILURE);
 	}
+	
+	log_write(LOG_INFO,"Backlight timeout: %d seconds",configured_backlight_on_sec);
+	log_write(LOG_INFO,"Brightness level: %d%%",configured_backlight_brightness);
+	log_write(LOG_INFO,"Fade duration: %d microseconds",configured_fade_duration_nsec/NSEC_PER_USEC);
 	
 	pthread_condattr_t timer_condattr;
 	pthread_condattr_init(&timer_condattr);
@@ -338,7 +367,7 @@ int main(const int argc,char **argv){
 		
 		// If the backlight is on and current_time is greater than or equal to backlight_off_time, turn the backlight off
 		if(desired_backlight_brightness!=0&&timespec_cmp(current_time,backlight_off_time)>=0){
-			printf("Turning backlight off\n");
+			log_write(LOG_INFO,"Turning backlight off");
 			desired_backlight_brightness=0;
 		}
 		
@@ -383,6 +412,10 @@ int main(const int argc,char **argv){
 	
 	pthread_join(input_thread,NULL);
 	set_backlight_brightness(0);
+	
+	if(is_daemon){
+		closelog();
+	}
 	
 	return EXIT_SUCCESS;
 }

@@ -48,9 +48,7 @@ Using the .deb package or executing the source installation commands above sets 
 
 ```
 Usage: keylightc [--brightness <brightness>] [--fadeduration <fadeduration>] [--timeout <timeout>]
-
 keylightc - automatic keyboard backlight daemon for Framework laptops
-
 Options:
   --brightness          brightness level when active (1-100) [default=30]
   --fadeduration        fade time in microseconds (1-1000000) [default=100000]
