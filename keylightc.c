@@ -44,8 +44,8 @@
 #define EVENT_DEV_NAME "event"
 
 #define BACKLIGHT_DEVICE "/sys/class/leds/chromeos::kbd_backlight/brightness"
-#define DEFAULT_BACKLIGHT_ON_SEC 10
-#define DEFAULT_BACKLIGHT_BRIGHTNESS 30
+#define DEFAULT_ON_SEC 10
+#define DEFAULT_BRIGHTNESS 30
 #define DEFAULT_FADE_DURATION_USEC 100000
 
 // This must be set exactly to the number of elements in the array or else a segfault will occur
@@ -71,14 +71,14 @@ static pthread_t input_thread;
 static pthread_cond_t timer_cond;
 static pthread_mutex_t timer_mutex;
 
-static int configured_backlight_on_sec=DEFAULT_BACKLIGHT_ON_SEC;
-static int configured_backlight_brightness=DEFAULT_BACKLIGHT_BRIGHTNESS;
+static int configured_on_sec=DEFAULT_ON_SEC;
+static int configured_brightness=DEFAULT_BRIGHTNESS;
 static int configured_fade_duration_nsec=DEFAULT_FADE_DURATION_USEC*NSEC_PER_USEC;
 
-static int desired_backlight_brightness=0;
-static struct timespec backlight_off_time;
+static int desired_brightness=0;
+static struct timespec off_time;
 
-static FILE *backlight_brightness_file=NULL;
+static FILE *brightness_file=NULL;
 
 // Separate flags are required for the input and main threads to prevent a hang due to the main thread
 // shutting down before the input thread and causing the latter to hang on pthread_mutex_lock().
@@ -162,9 +162,9 @@ static int get_input_fds(struct pollfd *pollfds){
 	return EXIT_SUCCESS;
 }
 
-static void set_backlight_brightness(const int brightness){
-	fprintf(backlight_brightness_file,"%d",brightness);
-	fflush(backlight_brightness_file);
+static void set_brightness(const int brightness){
+	fprintf(brightness_file,"%d",brightness);
+	fflush(brightness_file);
 }
 
 static int string_to_int(int *result,const int min,const int max,const char *string){
@@ -203,9 +203,9 @@ static int usage(){
 	log_write(LOG_NOTICE,"Usage: keylightc [--brightness <brightness>] [--fadeduration <fadeduration>] [--timeout <timeout>]");
 	log_write(LOG_NOTICE,"keylightc - automatic keyboard backlight daemon for Framework laptops");
 	log_write(LOG_NOTICE,"Options:");
-	log_write(LOG_NOTICE,"  --brightness\t\tbrightness level when active (1-100) [default=%d]",DEFAULT_BACKLIGHT_BRIGHTNESS);
+	log_write(LOG_NOTICE,"  --brightness\t\tbrightness level when active (1-100) [default=%d]",DEFAULT_BRIGHTNESS);
 	log_write(LOG_NOTICE,"  --fadeduration\tfade time in microseconds (1-1000000) [default=%d]",DEFAULT_FADE_DURATION_USEC);
-	log_write(LOG_NOTICE,"  --timeout\t\tactivity timeout in seconds (1-%d) [default=%d]",INT_MAX,DEFAULT_BACKLIGHT_ON_SEC);
+	log_write(LOG_NOTICE,"  --timeout\t\tactivity timeout in seconds (1-%d) [default=%d]",INT_MAX,DEFAULT_ON_SEC);
 	log_write(LOG_NOTICE,"  --help\t\tdisplay usage information");
 	return EXIT_FAILURE;
 }
@@ -258,14 +258,14 @@ void *input_handler(void *arg){
 		
 		if(new_event){
 			pthread_mutex_lock(&timer_mutex);
-			// Set backlight_off_time to latest_event_time plus configured_backlight_on_sec
-			backlight_off_time.tv_sec=latest_event_time.tv_sec+configured_backlight_on_sec;
-			backlight_off_time.tv_nsec=latest_event_time.tv_nsec;
+			// Set off_time to latest_event_time plus configured_on_sec
+			off_time.tv_sec=latest_event_time.tv_sec+configured_on_sec;
+			off_time.tv_nsec=latest_event_time.tv_nsec;
 			
 			// If the backlight is currently off, signal the main thread to turn it on
-			if(desired_backlight_brightness==0){
+			if(desired_brightness==0){
 				log_write(LOG_INFO,"Turning backlight on");
-				desired_backlight_brightness=configured_backlight_brightness;
+				desired_brightness=configured_brightness;
 				pthread_cond_signal(&timer_cond);
 			}
 			pthread_mutex_unlock(&timer_mutex);
@@ -291,7 +291,7 @@ int main(const int argc,char **argv){
 			case 0:
 				break;
 			case 'b':
-				if(string_to_int(&configured_backlight_brightness,1,100,optarg)){
+				if(string_to_int(&configured_brightness,1,100,optarg)){
 					return usage();
 				}
 				break;
@@ -302,7 +302,7 @@ int main(const int argc,char **argv){
 				configured_fade_duration_nsec*=NSEC_PER_USEC;
 				break;
 			case 't':
-				if(string_to_int(&configured_backlight_on_sec,1,INT_MAX,optarg)){
+				if(string_to_int(&configured_on_sec,1,INT_MAX,optarg)){
 					return usage();
 				}
 				break;
@@ -312,8 +312,8 @@ int main(const int argc,char **argv){
 		}
 	}
 	
-	backlight_brightness_file=fopen(BACKLIGHT_DEVICE,"w");
-	if(backlight_brightness_file==NULL){
+	brightness_file=fopen(BACKLIGHT_DEVICE,"w");
+	if(brightness_file==NULL){
 		log_write(LOG_ERR,"Failed to open backlight device!  Check permissions and ensure you are running Linux kernel 6.11 or later.");
 		return EXIT_FAILURE;
 	}
@@ -322,8 +322,8 @@ int main(const int argc,char **argv){
 		exit(EXIT_FAILURE);
 	}
 	
-	log_write(LOG_INFO,"Backlight timeout: %d seconds",configured_backlight_on_sec);
-	log_write(LOG_INFO,"Brightness level: %d%%",configured_backlight_brightness);
+	log_write(LOG_INFO,"Backlight timeout: %d seconds",configured_on_sec);
+	log_write(LOG_INFO,"Brightness level: %d%%",configured_brightness);
 	log_write(LOG_INFO,"Fade duration: %d microseconds",configured_fade_duration_nsec/NSEC_PER_USEC);
 	
 	pthread_condattr_t timer_condattr;
@@ -350,10 +350,10 @@ int main(const int argc,char **argv){
 	sigaddset(&mask,SIGTERM);
 	pthread_sigmask(SIG_BLOCK,&mask,NULL);
 	
-	set_backlight_brightness(0);
+	set_brightness(0);
 	
-	int current_backlight_brightness=0;
-	int previous_desired_backlight_brightness=-1;
+	int current_brightness=0;
+	int previous_desired_brightness=-1;
 	int fade_interval_nsec=0;
 	struct timespec next_fade_step_time={};
 	
@@ -365,31 +365,31 @@ int main(const int argc,char **argv){
 			break;
 		}
 		
-		// If the backlight is on and current_time is greater than or equal to backlight_off_time, turn the backlight off
-		if(desired_backlight_brightness!=0&&timespec_cmp(current_time,backlight_off_time)>=0){
+		// If the backlight is on and current_time is greater than or equal to off_time, turn the backlight off
+		if(desired_brightness!=0&&timespec_cmp(current_time,off_time)>=0){
 			log_write(LOG_INFO,"Turning backlight off");
-			desired_backlight_brightness=0;
+			desired_brightness=0;
 		}
 		
 		// If the backlight is already off, wait to be signaled to turn it back on
-		if(desired_backlight_brightness==0&&current_backlight_brightness==desired_backlight_brightness){
+		if(desired_brightness==0&&current_brightness==desired_brightness){
 			pthread_cond_wait(&timer_cond,&timer_mutex);
 		}
 		
-		if(current_backlight_brightness!=desired_backlight_brightness){
+		if(current_brightness!=desired_brightness){
 			// If the current brightness is not the desired brightness, fade in/out
 			if(timespec_cmp(current_time,next_fade_step_time)>=0){
-				if(current_backlight_brightness>desired_backlight_brightness){
-					current_backlight_brightness--;
+				if(current_brightness>desired_brightness){
+					current_brightness--;
 				}else{
-					current_backlight_brightness++;
+					current_brightness++;
 				}
-				set_backlight_brightness(current_backlight_brightness);
+				set_brightness(current_brightness);
 				
-				// If the desired_backlight_brightness has changed since the last iteration, calculate a new fade_interval_nsec
-				if(previous_desired_backlight_brightness!=desired_backlight_brightness){
-					previous_desired_backlight_brightness=desired_backlight_brightness;
-					fade_interval_nsec=configured_fade_duration_nsec/abs(current_backlight_brightness-desired_backlight_brightness);
+				// If the desired_brightness has changed since the last iteration, calculate a new fade_interval_nsec
+				if(previous_desired_brightness!=desired_brightness){
+					previous_desired_brightness=desired_brightness;
+					fade_interval_nsec=configured_fade_duration_nsec/abs(current_brightness-desired_brightness);
 				}
 				
 				// Calculate next_fade_step_time based on current_time and fade_interval_nsec
@@ -397,21 +397,21 @@ int main(const int argc,char **argv){
 				timespec_add_nsec(&next_fade_step_time,fade_interval_nsec);
 			}
 			
-			if(current_backlight_brightness>desired_backlight_brightness||timespec_cmp(backlight_off_time,next_fade_step_time)>=0){
-				// If this is a fade out or next_fade_step_time is sooner than backlight_off_time, wait until next_fade_step_time
+			if(current_brightness>desired_brightness||timespec_cmp(off_time,next_fade_step_time)>=0){
+				// If this is a fade out or next_fade_step_time is sooner than off_time, wait until next_fade_step_time
 				pthread_cond_timedwait(&timer_cond,&timer_mutex,&next_fade_step_time);
 			}else{
-				// If this is a fade in and backlight_off_time is somehow sooner than next_fade_step_time, wait until backlight_off_time
-				pthread_cond_timedwait(&timer_cond,&timer_mutex,&backlight_off_time);
+				// If this is a fade in and off_time is somehow sooner than next_fade_step_time, wait until off_time
+				pthread_cond_timedwait(&timer_cond,&timer_mutex,&off_time);
 			}
 		}else{
-			// Otherwise, wait until backlight_off_time
-			pthread_cond_timedwait(&timer_cond,&timer_mutex,&backlight_off_time);
+			// Otherwise, wait until off_time
+			pthread_cond_timedwait(&timer_cond,&timer_mutex,&off_time);
 		}
 	}
 	
 	pthread_join(input_thread,NULL);
-	set_backlight_brightness(0);
+	set_brightness(0);
 	
 	if(is_daemon){
 		closelog();
