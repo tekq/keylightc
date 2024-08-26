@@ -78,6 +78,9 @@ static int configured_fade_duration_nsec=DEFAULT_FADE_DURATION_USEC*NSEC_PER_USE
 static int desired_brightness=0;
 static struct timespec off_time;
 
+static int current_brightness=0;
+static int fade_interval_nsec=0;
+
 static FILE *brightness_file=NULL;
 
 // Separate flags are required for the input and main threads to prevent a hang due to the main thread
@@ -101,6 +104,10 @@ static void log_write(int priority,const char *format,...){
 		fprintf(target,"\n");
 	}
 	va_end(args);
+}
+
+static void calculate_fade_interval(){
+	fade_interval_nsec=configured_fade_duration_nsec/abs(current_brightness-desired_brightness);
 }
 
 static void exit_handler(int signal_number){
@@ -266,6 +273,7 @@ void *input_handler(void *arg){
 			if(desired_brightness==0){
 				log_write(LOG_INFO,"Turning backlight on");
 				desired_brightness=configured_brightness;
+				calculate_fade_interval();
 				pthread_cond_signal(&timer_cond);
 			}
 			pthread_mutex_unlock(&timer_mutex);
@@ -352,11 +360,7 @@ int main(const int argc,char **argv){
 	
 	set_brightness(0);
 	
-	int current_brightness=0;
-	int previous_desired_brightness=-1;
-	int fade_interval_nsec=0;
 	struct timespec next_fade_step_time={};
-	
 	while(true){
 		struct timespec current_time;
 		clock_gettime(CLOCK_MONOTONIC,&current_time);
@@ -374,6 +378,7 @@ int main(const int argc,char **argv){
 			// If the backlight is on and current_time is greater than or equal to off_time, turn the backlight off
 			log_write(LOG_INFO,"Turning backlight off");
 			desired_brightness=0;
+			calculate_fade_interval();
 		}
 		
 		if(current_brightness!=desired_brightness){
@@ -385,12 +390,6 @@ int main(const int argc,char **argv){
 					current_brightness++;
 				}
 				set_brightness(current_brightness);
-				
-				// If the desired_brightness has changed since the last iteration, calculate a new fade_interval_nsec
-				if(previous_desired_brightness!=desired_brightness){
-					previous_desired_brightness=desired_brightness;
-					fade_interval_nsec=configured_fade_duration_nsec/abs(current_brightness-desired_brightness);
-				}
 				
 				// Calculate next_fade_step_time based on current_time and fade_interval_nsec
 				memcpy(&next_fade_step_time,&current_time,sizeof(struct timespec));
