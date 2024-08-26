@@ -397,13 +397,8 @@ int main(const int argc,char **argv){
 				timespec_add_nsec(&next_fade_step_time,fade_interval_nsec);
 			}
 			
-			if(current_brightness>desired_brightness||timespec_cmp(off_time,next_fade_step_time)>=0){
-				// If this is a fade out or next_fade_step_time is sooner than off_time, wait until next_fade_step_time
-				pthread_cond_timedwait(&timer_cond,&timer_mutex,&next_fade_step_time);
-			}else{
-				// If this is a fade in and off_time is somehow sooner than next_fade_step_time, wait until off_time
-				pthread_cond_timedwait(&timer_cond,&timer_mutex,&off_time);
-			}
+			// Wait until next_fade_step_time
+			pthread_cond_timedwait(&timer_cond,&timer_mutex,&next_fade_step_time);
 		}else{
 			// Otherwise, wait until off_time
 			pthread_cond_timedwait(&timer_cond,&timer_mutex,&off_time);
