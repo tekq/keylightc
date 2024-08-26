@@ -382,8 +382,9 @@ int main(const int argc,char **argv){
 		}
 		
 		if(current_brightness!=desired_brightness){
-			// If the current brightness is not the desired brightness, fade in/out
+			// If the current brightness is not the desired brightness…
 			if(timespec_cmp(current_time,next_fade_step_time)>=0){
+				// …and the next fade step is due, fade in/out
 				if(current_brightness>desired_brightness){
 					current_brightness--;
 				}else{
@@ -391,13 +392,19 @@ int main(const int argc,char **argv){
 				}
 				set_brightness(current_brightness);
 				
-				// Calculate next_fade_step_time based on current_time and fade_interval_nsec
-				memcpy(&next_fade_step_time,&current_time,sizeof(struct timespec));
-				timespec_add_nsec(&next_fade_step_time,fade_interval_nsec);
+				// It is necessary to repeat this check in case the fade was just finished above
+				if(current_brightness!=desired_brightness){
+					// Calculate next_fade_step_time based on current_time and fade_interval_nsec
+					memcpy(&next_fade_step_time,&current_time,sizeof(struct timespec));
+					timespec_add_nsec(&next_fade_step_time,fade_interval_nsec);
+					
+					// Wait until next_fade_step_time
+					pthread_cond_timedwait(&timer_cond,&timer_mutex,&next_fade_step_time);
+				}
+			}else{
+				// If the next fade step is not due, wait again
+				pthread_cond_timedwait(&timer_cond,&timer_mutex,&next_fade_step_time);
 			}
-			
-			// Wait until next_fade_step_time
-			pthread_cond_timedwait(&timer_cond,&timer_mutex,&next_fade_step_time);
 		}else{
 			// Otherwise, wait until off_time
 			pthread_cond_timedwait(&timer_cond,&timer_mutex,&off_time);
