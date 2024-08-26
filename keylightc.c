@@ -365,15 +365,15 @@ int main(const int argc,char **argv){
 			break;
 		}
 		
-		// If the backlight is on and current_time is greater than or equal to off_time, turn the backlight off
-		if(desired_brightness!=0&&timespec_cmp(current_time,off_time)>=0){
+		if(desired_brightness==0){
+			if(current_brightness==desired_brightness){
+				// If the backlight is already off, wait to be signaled to turn it back on
+				pthread_cond_wait(&timer_cond,&timer_mutex);
+			}
+		}else if(timespec_cmp(current_time,off_time)>=0){
+			// If the backlight is on and current_time is greater than or equal to off_time, turn the backlight off
 			log_write(LOG_INFO,"Turning backlight off");
 			desired_brightness=0;
-		}
-		
-		// If the backlight is already off, wait to be signaled to turn it back on
-		if(desired_brightness==0&&current_brightness==desired_brightness){
-			pthread_cond_wait(&timer_cond,&timer_mutex);
 		}
 		
 		if(current_brightness!=desired_brightness){
