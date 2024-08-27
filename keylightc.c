@@ -68,6 +68,8 @@ static int found_device_count=0;
 
 static pthread_t input_thread;
 
+static struct timespec input_batch_delay={};
+
 static pthread_cond_t timer_cond;
 static pthread_mutex_t timer_mutex;
 
@@ -76,7 +78,7 @@ static int configured_brightness=DEFAULT_BRIGHTNESS;
 static int configured_fade_duration_nsec=DEFAULT_FADE_DURATION_USEC*NSEC_PER_USEC;
 
 static int desired_brightness=0;
-static struct timespec off_time;
+static struct timespec off_time={};
 
 static int current_brightness=0;
 static int fade_interval_nsec=0;
@@ -116,6 +118,14 @@ static void exit_handler(int signal_number){
 
 static int is_event_device(const struct dirent *dir){
 	return strncmp(EVENT_DEV_NAME,dir->d_name,5)==0;
+}
+
+static long min(const long x,const long y){
+	if(x<y){
+		return x;
+	}else{
+		return y;
+	}
 }
 
 static bool string_in_array(const char *string,const char *array[],int array_length){
@@ -240,7 +250,7 @@ void *input_handler(void *arg){
 		bool new_event=false;
 		for(int i=0;i<found_device_count;i++){
 			if(found_device_pollfds[i].revents&POLLIN){
-				struct input_event input_event[256];
+				struct input_event input_event[512];
 				int read_bytes=read(found_device_pollfds[i].fd,input_event,sizeof(input_event));
 				if(read_bytes==-1){
 					if(errno!=EINTR){
@@ -279,7 +289,7 @@ void *input_handler(void *arg){
 			pthread_mutex_unlock(&timer_mutex);
 			
 			// Sleep here to prevent spinning and using too much CPU
-			nanosleep(&(struct timespec){.tv_nsec=500000000},NULL);
+			nanosleep(&input_batch_delay,NULL);
 		}
 	}
 	
@@ -329,6 +339,9 @@ int main(const int argc,char **argv){
 	if(get_input_fds(found_device_pollfds)){
 		exit(EXIT_FAILURE);
 	}
+	
+	// Set input_batch_delay to half configured_on_sec with an upper limit of 5 seconds
+	timespec_add_nsec(&input_batch_delay,min((long)configured_on_sec*NSEC_PER_SEC/2,(long)NSEC_PER_SEC*5));
 	
 	log_write(LOG_INFO,"Backlight timeout: %d seconds",configured_on_sec);
 	log_write(LOG_INFO,"Brightness level: %d%%",configured_brightness);
