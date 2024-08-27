@@ -343,9 +343,9 @@ int main(const int argc,char **argv){
 	// Set input_batch_delay to half configured_on_sec with an upper limit of 5 seconds
 	timespec_add_nsec(&input_batch_delay,min((long)configured_on_sec*NSEC_PER_SEC/2,(long)NSEC_PER_SEC*5));
 	
-	log_write(LOG_INFO,"Backlight timeout: %d seconds",configured_on_sec);
+	log_write(LOG_INFO,"Backlight timeout: %d second%s",configured_on_sec,configured_on_sec!=1?"s":"");
 	log_write(LOG_INFO,"Brightness level: %d%%",configured_brightness);
-	log_write(LOG_INFO,"Fade duration: %d microseconds",configured_fade_duration_nsec/NSEC_PER_USEC);
+	log_write(LOG_INFO,"Fade duration: %d microsecond%s",configured_fade_duration_nsec/NSEC_PER_USEC,configured_fade_duration_nsec/NSEC_PER_USEC!=1?"s":"");
 	
 	pthread_condattr_t timer_condattr;
 	pthread_condattr_init(&timer_condattr);
