@@ -86,6 +86,7 @@ static struct timespec off_time={};
 
 static int current_brightness=0;
 static int fade_interval_nsec=0;
+static struct timespec next_fade_step_time={};
 
 static FILE *brightness_file=NULL;
 
@@ -109,12 +110,17 @@ static void log_write(int priority,const char *format,...){
 	va_end(args);
 }
 
-static void calculate_fade_interval(){
-	fade_interval_nsec=configured_fade_duration_nsec/abs(current_brightness-desired_brightness);
-}
-
 static void exit_handler(int signal_number){
 	exit_requested=true;
+}
+
+static void fade_init(const int brightness){
+	pthread_mutex_lock(&fader_mutex);
+	desired_brightness=brightness;
+	fade_interval_nsec=configured_fade_duration_nsec/abs(current_brightness-desired_brightness);
+	next_fade_step_time=(struct timespec){};
+	pthread_cond_signal(&fader_cond);
+	pthread_mutex_unlock(&fader_mutex);
 }
 
 static int is_event_device(const struct dirent *dir){
@@ -231,7 +237,6 @@ static int usage(){
 void *fader(void *arg){
 	pthread_mutex_lock(&fader_mutex);
 	
-	struct timespec next_fade_step_time={};
 	while(true){
 		struct timespec current_time;
 		clock_gettime(CLOCK_MONOTONIC,&current_time);
@@ -274,11 +279,7 @@ void *timer(void *arg){
 		}else if(timespec_cmp(current_time,off_time)>=0){
 			// If the backlight is on and current_time is greater than or equal to off_time, turn the backlight off
 			log_write(LOG_INFO,"Turning backlight off");
-			pthread_mutex_lock(&fader_mutex);
-			desired_brightness=0;
-			calculate_fade_interval();
-			pthread_cond_signal(&fader_cond);
-			pthread_mutex_unlock(&fader_mutex);
+			fade_init(0);
 		}else{
 			// Otherwise, wait until off_time
 			pthread_cond_timedwait(&timer_cond,&timer_mutex,&off_time);
@@ -408,12 +409,8 @@ int main(const int argc,char **argv){
 			// If the backlight is currently off…
 			if(desired_brightness==0){
 				// Turn it on
-				pthread_mutex_lock(&fader_mutex);
 				log_write(LOG_INFO,"Turning backlight on");
-				desired_brightness=configured_brightness;
-				calculate_fade_interval();
-				pthread_cond_signal(&fader_cond);
-				pthread_mutex_unlock(&fader_mutex);
+				fade_init(configured_brightness);
 				
 				// And signal the timer thread to start timing down to turn it off
 				pthread_cond_signal(&timer_cond);
