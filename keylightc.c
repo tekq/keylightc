@@ -69,7 +69,7 @@ static int found_device_count=0;
 static struct timespec input_batch_delay={};
 
 static pthread_t fader_thread;
-static pthread_t input_thread;
+static pthread_t timer_thread;
 
 static pthread_cond_t timer_cond;
 static pthread_mutex_t timer_mutex;
@@ -89,10 +89,7 @@ static int fade_interval_nsec=0;
 
 static FILE *brightness_file=NULL;
 
-// Separate flags are required for the input and main threads to prevent a hang due to the main thread
-// shutting down before the input thread and causing the latter to hang on pthread_mutex_lock().
 static bool exit_requested=false;
-static bool main_thread_exit=false;
 
 static bool is_daemon;
 
@@ -234,13 +231,6 @@ static int usage(){
 void *fader(void *arg){
 	pthread_mutex_lock(&fader_mutex);
 	
-	// Block the exit signals on the fader thread to force them to be handled by the input thread
-	sigset_t mask;
-	sigemptyset(&mask);
-	sigaddset(&mask,SIGINT);
-	sigaddset(&mask,SIGTERM);
-	pthread_sigmask(SIG_BLOCK,&mask,NULL);
-	
 	struct timespec next_fade_step_time={};
 	while(true){
 		struct timespec current_time;
@@ -269,87 +259,31 @@ void *fader(void *arg){
 			pthread_cond_wait(&fader_cond,&fader_mutex);
 		}
 	}
-	
-	return NULL;
 }
 
-void *input_handler(void *arg){
-	struct timespec latest_event_time={};
+void *timer(void *arg){
+	pthread_mutex_lock(&timer_mutex);
 	
 	while(true){
-		// If an exit is requested…
-		if(exit_requested){
-			// Set the flag telling the main thread to exit and signal it
-			main_thread_exit=true;
-			pthread_mutex_lock(&timer_mutex);
-			pthread_cond_signal(&timer_cond);
-			pthread_mutex_unlock(&timer_mutex);
-			
-			// And cancel the fader thread
-			pthread_cancel(fader_thread);
-			break;
-		}
+		struct timespec current_time;
+		clock_gettime(CLOCK_MONOTONIC,&current_time);
 		
-		if(poll(found_device_pollfds,found_device_count,-1)==-1){
-			if(errno!=EINTR){
-				log_write(LOG_ERR,"Poll failure‽");
-				exit(EXIT_FAILURE);
-			}
-		}
-		
-		bool new_event=false;
-		for(int i=0;i<found_device_count;i++){
-			if(found_device_pollfds[i].revents&POLLIN){
-				struct input_event input_event[512];
-				int read_bytes=read(found_device_pollfds[i].fd,input_event,sizeof(input_event));
-				if(read_bytes==-1){
-					if(errno!=EINTR){
-						log_write(LOG_ERR,"Read failure‽");
-						exit(EXIT_FAILURE);
-					}
-				}
-				
-				// Get the index of the last event, which will be the latest event for this device
-				int last_event_index=read_bytes/sizeof(struct input_event)-1;
-				
-				// Convert the event time into a timespec and update latest_event_time if it is more recent
-				struct timespec event_time;
-				event_time.tv_sec=input_event[last_event_index].input_event_sec;
-				event_time.tv_nsec=input_event[last_event_index].input_event_usec*NSEC_PER_USEC;
-				if(timespec_cmp(event_time,latest_event_time)>=0){
-					memcpy(&latest_event_time,&event_time,sizeof(struct timespec));
-					new_event=true;
-				}
-			}
-		}
-		
-		if(new_event){
-			pthread_mutex_lock(&timer_mutex);
-			// Set off_time to latest_event_time plus configured_on_sec
-			off_time.tv_sec=latest_event_time.tv_sec+configured_on_sec;
-			off_time.tv_nsec=latest_event_time.tv_nsec;
-			
-			// If the backlight is currently off…
-			if(desired_brightness==0){
-				// Turn it on
-				pthread_mutex_lock(&fader_mutex);
-				log_write(LOG_INFO,"Turning backlight on");
-				desired_brightness=configured_brightness;
-				calculate_fade_interval();
-				pthread_cond_signal(&fader_cond);
-				pthread_mutex_unlock(&fader_mutex);
-				
-				// And signal the timer thread to start timing down to turn it off
-				pthread_cond_signal(&timer_cond);
-			}
-			pthread_mutex_unlock(&timer_mutex);
-			
-			// Sleep here to prevent spinning and using too much CPU
-			nanosleep(&input_batch_delay,NULL);
+		if(desired_brightness==0){
+			// If the backlight is already off, wait to be signaled once it has been turned back on
+			pthread_cond_wait(&timer_cond,&timer_mutex);
+		}else if(timespec_cmp(current_time,off_time)>=0){
+			// If the backlight is on and current_time is greater than or equal to off_time, turn the backlight off
+			log_write(LOG_INFO,"Turning backlight off");
+			pthread_mutex_lock(&fader_mutex);
+			desired_brightness=0;
+			calculate_fade_interval();
+			pthread_cond_signal(&fader_cond);
+			pthread_mutex_unlock(&fader_mutex);
+		}else{
+			// Otherwise, wait until off_time
+			pthread_cond_timedwait(&timer_cond,&timer_mutex,&off_time);
 		}
 	}
-	
-	return NULL;
 }
 
 int main(const int argc,char **argv){
@@ -415,18 +349,8 @@ int main(const int argc,char **argv){
 	pthread_cond_init(&fader_cond,&timer_condattr);
 	pthread_mutex_init(&fader_mutex,NULL);
 	
-	pthread_mutex_lock(&timer_mutex);
-	
-	// Create the other threads only after locking timer_mutex to ensure we don't receive any events before we are ready
 	pthread_create(&fader_thread,NULL,fader,NULL);
-	pthread_create(&input_thread,NULL,input_handler,NULL);
-	
-	// Block the exit signals on the main thread to force them to be handled by the input thread
-	sigset_t mask;
-	sigemptyset(&mask);
-	sigaddset(&mask,SIGINT);
-	sigaddset(&mask,SIGTERM);
-	pthread_sigmask(SIG_BLOCK,&mask,NULL);
+	pthread_create(&timer_thread,NULL,timer,NULL);
 	
 	// Set up the exit handler
 	struct sigaction exit_action;
@@ -436,33 +360,75 @@ int main(const int argc,char **argv){
 	
 	set_brightness(0);
 	
+	struct timespec latest_event_time={};
 	while(true){
-		struct timespec current_time;
-		clock_gettime(CLOCK_MONOTONIC,&current_time);
-		
-		if(main_thread_exit){
+		if(exit_requested){
 			break;
 		}
 		
-		if(desired_brightness==0){
-			// If the backlight is already off, wait to be signaled once it has been turned back on
-			pthread_cond_wait(&timer_cond,&timer_mutex);
-		}else if(timespec_cmp(current_time,off_time)>=0){
-			// If the backlight is on and current_time is greater than or equal to off_time, turn the backlight off
-			log_write(LOG_INFO,"Turning backlight off");
-			pthread_mutex_lock(&fader_mutex);
-			desired_brightness=0;
-			calculate_fade_interval();
-			pthread_cond_signal(&fader_cond);
-			pthread_mutex_unlock(&fader_mutex);
-		}else{
-			// Otherwise, wait until off_time
-			pthread_cond_timedwait(&timer_cond,&timer_mutex,&off_time);
+		if(poll(found_device_pollfds,found_device_count,-1)==-1){
+			if(errno!=EINTR){
+				log_write(LOG_ERR,"Poll failure‽");
+				exit(EXIT_FAILURE);
+			}
+		}
+		
+		bool new_event=false;
+		for(int i=0;i<found_device_count;i++){
+			if(found_device_pollfds[i].revents&POLLIN){
+				struct input_event input_event[512];
+				int read_bytes=read(found_device_pollfds[i].fd,input_event,sizeof(input_event));
+				if(read_bytes==-1){
+					if(errno!=EINTR){
+						log_write(LOG_ERR,"Read failure‽");
+						exit(EXIT_FAILURE);
+					}
+				}
+				
+				// Get the index of the last event, which will be the latest event for this device
+				int last_event_index=read_bytes/sizeof(struct input_event)-1;
+				
+				// Convert the event time into a timespec and update latest_event_time if it is more recent
+				struct timespec event_time;
+				event_time.tv_sec=input_event[last_event_index].input_event_sec;
+				event_time.tv_nsec=input_event[last_event_index].input_event_usec*NSEC_PER_USEC;
+				if(timespec_cmp(event_time,latest_event_time)>=0){
+					memcpy(&latest_event_time,&event_time,sizeof(struct timespec));
+					new_event=true;
+				}
+			}
+		}
+		
+		if(new_event){
+			pthread_mutex_lock(&timer_mutex);
+			// Set off_time to latest_event_time plus configured_on_sec
+			off_time.tv_sec=latest_event_time.tv_sec+configured_on_sec;
+			off_time.tv_nsec=latest_event_time.tv_nsec;
+			
+			// If the backlight is currently off…
+			if(desired_brightness==0){
+				// Turn it on
+				pthread_mutex_lock(&fader_mutex);
+				log_write(LOG_INFO,"Turning backlight on");
+				desired_brightness=configured_brightness;
+				calculate_fade_interval();
+				pthread_cond_signal(&fader_cond);
+				pthread_mutex_unlock(&fader_mutex);
+				
+				// And signal the timer thread to start timing down to turn it off
+				pthread_cond_signal(&timer_cond);
+			}
+			pthread_mutex_unlock(&timer_mutex);
+			
+			// Sleep here to prevent spinning and using too much CPU
+			nanosleep(&input_batch_delay,NULL);
 		}
 	}
 	
+	pthread_cancel(fader_thread);
+	pthread_cancel(timer_thread);
 	pthread_join(fader_thread,NULL);
-	pthread_join(input_thread,NULL);
+	pthread_join(timer_thread,NULL);
 	set_brightness(0);
 	
 	if(is_daemon){
