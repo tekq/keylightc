@@ -386,22 +386,20 @@ int main(const int argc,char **argv){
 					}
 				}
 				
-				// Get the index of the second-to-last event, which will be the latest event for this device
-				// The very last event is always type==EV_SYN, which isn't interesting here
-				int last_event_index=read_bytes/sizeof(struct input_event)-2;
-				
-				// Ignore EV_SYNless responses and LED events; the former causes crashing and the latter causes false wakeups
-				if(last_event_index<0||input_event[last_event_index].type==EV_LED){
-					continue;
-				}
-				
-				// Convert the event time into a timespec and update latest_event_time if it is more recent
-				struct timespec event_time;
-				event_time.tv_sec=input_event[last_event_index].input_event_sec;
-				event_time.tv_nsec=input_event[last_event_index].input_event_usec*NSEC_PER_USEC;
-				if(timespec_cmp(event_time,latest_event_time)>=0){
-					memcpy(&latest_event_time,&event_time,sizeof(struct timespec));
-					new_event=true;
+				// The last event is always an EV_SYN, so start at the second-to-last and go backward…
+				for(int event_index=read_bytes/sizeof(struct input_event)-2;event_index>=0;event_index--){
+					// Looking for an event that is not EV_SYN or EV_LED…
+					if(input_event[event_index].type!=EV_SYN&&input_event[event_index].type!=EV_LED){
+						// If one is found, convert the event time into a timespec and update latest_event_time if it is more recent
+						struct timespec event_time;
+						event_time.tv_sec=input_event[event_index].input_event_sec;
+						event_time.tv_nsec=input_event[event_index].input_event_usec*NSEC_PER_USEC;
+						if(timespec_cmp(event_time,latest_event_time)>=0){
+							memcpy(&latest_event_time,&event_time,sizeof(struct timespec));
+							new_event=true;
+						}
+						break;
+					}
 				}
 			}
 		}
