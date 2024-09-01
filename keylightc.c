@@ -66,12 +66,16 @@ static const struct option long_options[]={
 static struct pollfd found_device_pollfds[SEARCH_DEVICE_COUNT];
 static int found_device_count=0;
 
-static pthread_t input_thread;
-
 static struct timespec input_batch_delay={};
+
+static pthread_t fader_thread;
+static pthread_t input_thread;
 
 static pthread_cond_t timer_cond;
 static pthread_mutex_t timer_mutex;
+
+static pthread_cond_t fader_cond;
+static pthread_mutex_t fader_mutex;
 
 static int configured_on_sec=DEFAULT_ON_SEC;
 static int configured_brightness=DEFAULT_BRIGHTNESS;
@@ -227,16 +231,62 @@ static int usage(){
 	return EXIT_FAILURE;
 }
 
+void *fader(void *arg){
+	pthread_mutex_lock(&fader_mutex);
+	
+	// Block the exit signals on the fader thread to force them to be handled by the input thread
+	sigset_t mask;
+	sigemptyset(&mask);
+	sigaddset(&mask,SIGINT);
+	sigaddset(&mask,SIGTERM);
+	pthread_sigmask(SIG_BLOCK,&mask,NULL);
+	
+	struct timespec next_fade_step_time={};
+	while(true){
+		struct timespec current_time;
+		clock_gettime(CLOCK_MONOTONIC,&current_time);
+		
+		if(current_brightness!=desired_brightness){
+			// If the current brightness is not the desired brightness…
+			if(timespec_cmp(current_time,next_fade_step_time)>=0){
+				// …and the next fade step is due, fade in/out
+				if(current_brightness>desired_brightness){
+					current_brightness--;
+				}else{
+					current_brightness++;
+				}
+				set_brightness(current_brightness);
+				
+				// Calculate next_fade_step_time based on current_time and fade_interval_nsec
+				memcpy(&next_fade_step_time,&current_time,sizeof(struct timespec));
+				timespec_add_nsec(&next_fade_step_time,fade_interval_nsec);
+			}
+			
+			// Wait until next_fade_step_time
+			pthread_cond_timedwait(&fader_cond,&fader_mutex,&next_fade_step_time);
+		}else{
+			// Otherwise, wait to be signaled
+			pthread_cond_wait(&fader_cond,&fader_mutex);
+		}
+	}
+	
+	return NULL;
+}
+
 void *input_handler(void *arg){
 	struct timespec latest_event_time={};
 	
 	while(true){
-		// If an exit is requested, signal the main thread and break out of the loop
+		// If an exit is requested…
 		if(exit_requested){
-			pthread_mutex_lock(&timer_mutex);
+			// Set the flag telling the main thread to exit and signal it
 			main_thread_exit=true;
+			pthread_mutex_lock(&timer_mutex);
 			pthread_cond_signal(&timer_cond);
 			pthread_mutex_unlock(&timer_mutex);
+			
+			// And cancel the fader thread
+			pthread_cancel(fader_thread);
 			break;
 		}
 		
@@ -279,11 +329,17 @@ void *input_handler(void *arg){
 			off_time.tv_sec=latest_event_time.tv_sec+configured_on_sec;
 			off_time.tv_nsec=latest_event_time.tv_nsec;
 			
-			// If the backlight is currently off, signal the main thread to turn it on
+			// If the backlight is currently off…
 			if(desired_brightness==0){
+				// Turn it on
+				pthread_mutex_lock(&fader_mutex);
 				log_write(LOG_INFO,"Turning backlight on");
 				desired_brightness=configured_brightness;
 				calculate_fade_interval();
+				pthread_cond_signal(&fader_cond);
+				pthread_mutex_unlock(&fader_mutex);
+				
+				// And signal the timer thread to start timing down to turn it off
 				pthread_cond_signal(&timer_cond);
 			}
 			pthread_mutex_unlock(&timer_mutex);
@@ -353,16 +409,17 @@ int main(const int argc,char **argv){
 	pthread_cond_init(&timer_cond,&timer_condattr);
 	pthread_mutex_init(&timer_mutex,NULL);
 	
+	pthread_condattr_t fader_condattr;
+	pthread_condattr_init(&fader_condattr);
+	pthread_condattr_setclock(&fader_condattr,CLOCK_MONOTONIC);
+	pthread_cond_init(&fader_cond,&timer_condattr);
+	pthread_mutex_init(&fader_mutex,NULL);
+	
 	pthread_mutex_lock(&timer_mutex);
 	
-	// Create the input thread only after locking timer_mutex to ensure it doesn't send us any events before we are ready
+	// Create the other threads only after locking timer_mutex to ensure we don't receive any events before we are ready
+	pthread_create(&fader_thread,NULL,fader,NULL);
 	pthread_create(&input_thread,NULL,input_handler,NULL);
-	
-	// Set up the exit handler
-	struct sigaction exit_action;
-	exit_action.sa_handler=exit_handler;
-	sigaction(SIGINT,&exit_action,NULL);
-	sigaction(SIGTERM,&exit_action,NULL);
 	
 	// Block the exit signals on the main thread to force them to be handled by the input thread
 	sigset_t mask;
@@ -371,9 +428,14 @@ int main(const int argc,char **argv){
 	sigaddset(&mask,SIGTERM);
 	pthread_sigmask(SIG_BLOCK,&mask,NULL);
 	
+	// Set up the exit handler
+	struct sigaction exit_action;
+	exit_action.sa_handler=exit_handler;
+	sigaction(SIGINT,&exit_action,NULL);
+	sigaction(SIGTERM,&exit_action,NULL);
+	
 	set_brightness(0);
 	
-	struct timespec next_fade_step_time={};
 	while(true){
 		struct timespec current_time;
 		clock_gettime(CLOCK_MONOTONIC,&current_time);
@@ -383,47 +445,23 @@ int main(const int argc,char **argv){
 		}
 		
 		if(desired_brightness==0){
-			if(current_brightness==desired_brightness){
-				// If the backlight is already off, wait to be signaled to turn it back on
-				pthread_cond_wait(&timer_cond,&timer_mutex);
-			}
+			// If the backlight is already off, wait to be signaled once it has been turned back on
+			pthread_cond_wait(&timer_cond,&timer_mutex);
 		}else if(timespec_cmp(current_time,off_time)>=0){
 			// If the backlight is on and current_time is greater than or equal to off_time, turn the backlight off
 			log_write(LOG_INFO,"Turning backlight off");
+			pthread_mutex_lock(&fader_mutex);
 			desired_brightness=0;
 			calculate_fade_interval();
-		}
-		
-		if(current_brightness!=desired_brightness){
-			// If the current brightness is not the desired brightness…
-			if(timespec_cmp(current_time,next_fade_step_time)>=0){
-				// …and the next fade step is due, fade in/out
-				if(current_brightness>desired_brightness){
-					current_brightness--;
-				}else{
-					current_brightness++;
-				}
-				set_brightness(current_brightness);
-				
-				// It is necessary to repeat this check in case the fade was just finished above
-				if(current_brightness!=desired_brightness){
-					// Calculate next_fade_step_time based on current_time and fade_interval_nsec
-					memcpy(&next_fade_step_time,&current_time,sizeof(struct timespec));
-					timespec_add_nsec(&next_fade_step_time,fade_interval_nsec);
-					
-					// Wait until next_fade_step_time
-					pthread_cond_timedwait(&timer_cond,&timer_mutex,&next_fade_step_time);
-				}
-			}else{
-				// If the next fade step is not due, wait again
-				pthread_cond_timedwait(&timer_cond,&timer_mutex,&next_fade_step_time);
-			}
+			pthread_cond_signal(&fader_cond);
+			pthread_mutex_unlock(&fader_mutex);
 		}else{
 			// Otherwise, wait until off_time
 			pthread_cond_timedwait(&timer_cond,&timer_mutex,&off_time);
 		}
 	}
 	
+	pthread_join(fader_thread,NULL);
 	pthread_join(input_thread,NULL);
 	set_brightness(0);
 	
