@@ -136,8 +136,8 @@ static long min(const long x,const long y){
 }
 
 static bool string_in_array(const char *string,const char *array[],int array_length){
-	for(int i=0;i<array_length;i++){
-		if(!strcmp(string,array[i])){
+	for(int array_index=0;array_index<array_length;array_index++){
+		if(!strcmp(string,array[array_index])){
 			return true;
 		}
 	}
@@ -145,20 +145,20 @@ static bool string_in_array(const char *string,const char *array[],int array_len
 }
 
 static int get_input_fds(struct pollfd *pollfds){
-	struct dirent **namelist={};
-	int device_count=scandir(DEV_INPUT_EVENT,&namelist,is_event_device,alphasort);
+	struct dirent **device_name_list={};
+	int device_count=scandir(DEV_INPUT_EVENT,&device_name_list,is_event_device,alphasort);
 	int clock_type=CLOCK_MONOTONIC;
 	if(device_count<=0){
 		log_write(LOG_ERR,"%s directory contains no devices!",DEV_INPUT_EVENT);
 		return EXIT_FAILURE;
 	}
 	
-	for(int i=0;i<device_count&&found_device_count<=SEARCH_DEVICE_COUNT;i++){
+	for(int device_index=0;device_index<device_count&&found_device_count<=SEARCH_DEVICE_COUNT;device_index++){
 		char device_filename[4096];
 		int fd=-1;
 		char device_name[256]="???";
 		
-		snprintf(device_filename,sizeof(device_filename),"%s/%s",DEV_INPUT_EVENT,namelist[i]->d_name);
+		snprintf(device_filename,sizeof(device_filename),"%s/%s",DEV_INPUT_EVENT,device_name_list[device_index]->d_name);
 		fd=open(device_filename,O_RDONLY);
 		if(fd<0){
 			continue;
@@ -175,7 +175,7 @@ static int get_input_fds(struct pollfd *pollfds){
 			close(fd);
 		}
 		
-		free(namelist[i]);
+		free(device_name_list[device_index]);
 	}
 	
 	if(found_device_count==0){
@@ -375,10 +375,10 @@ int main(const int argc,char **argv){
 		}
 		
 		bool new_event=false;
-		for(int i=0;i<found_device_count;i++){
-			if(found_device_pollfds[i].revents&POLLIN){
+		for(int device_index=0;device_index<found_device_count;device_index++){
+			if(found_device_pollfds[device_index].revents&POLLIN){
 				struct input_event input_event[512];
-				int read_bytes=read(found_device_pollfds[i].fd,input_event,sizeof(input_event));
+				int read_bytes=read(found_device_pollfds[device_index].fd,input_event,sizeof(input_event));
 				if(read_bytes==-1){
 					if(errno!=EINTR){
 						log_write(LOG_ERR,"Read failure‽");
