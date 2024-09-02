@@ -289,9 +289,6 @@ void *timer(void *arg){
 
 int main(const int argc,char **argv){
 	is_daemon=!isatty(1);
-	if(is_daemon){
-		openlog("keylightc",LOG_CONS|LOG_PID|LOG_NDELAY,LOG_DAEMON);
-	}
 	
 	int option;
 	while((option=getopt_long(argc,argv,"",long_options,NULL))!=EOF){
@@ -431,10 +428,6 @@ int main(const int argc,char **argv){
 	pthread_join(fader_thread,NULL);
 	pthread_join(timer_thread,NULL);
 	set_brightness(0);
-	
-	if(is_daemon){
-		closelog();
-	}
 	
 	return EXIT_SUCCESS;
 }
