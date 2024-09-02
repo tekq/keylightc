@@ -63,28 +63,18 @@ static const struct option long_options[]={
 	{},
 };
 
-static struct pollfd found_device_pollfds[SEARCH_DEVICE_COUNT];
-static int found_device_count=0;
-
-static struct timespec input_batch_delay={};
-
-static pthread_t fader_thread;
-static pthread_t timer_thread;
-
 static pthread_cond_t timer_cond;
 static pthread_mutex_t timer_mutex;
 
 static pthread_cond_t fader_cond;
 static pthread_mutex_t fader_mutex;
 
-static int configured_on_sec=DEFAULT_ON_SEC;
-static int configured_brightness=DEFAULT_BRIGHTNESS;
-static int configured_fade_duration_nsec=DEFAULT_FADE_DURATION_USEC*NSEC_PER_USEC;
-
+static int current_brightness=0;
 static int desired_brightness=0;
+
 static struct timespec off_time={};
 
-static int current_brightness=0;
+static int configured_fade_duration_nsec=DEFAULT_FADE_DURATION_USEC*NSEC_PER_USEC;
 static int fade_interval_nsec=0;
 static struct timespec next_fade_step_time={};
 
@@ -147,10 +137,10 @@ static bool string_in_array(const char *string,const char *array[],int array_len
 static int get_input_fds(struct pollfd *pollfds){
 	struct dirent **device_name_list={};
 	int device_count=scandir(DEV_INPUT_EVENT,&device_name_list,is_event_device,alphasort);
+	int found_device_count=0;
 	int clock_type=CLOCK_MONOTONIC;
 	if(device_count<=0){
-		log_write(LOG_ERR,"%s directory contains no devices!",DEV_INPUT_EVENT);
-		return EXIT_FAILURE;
+		return -1;
 	}
 	
 	for(int device_index=0;device_index<device_count&&found_device_count<=SEARCH_DEVICE_COUNT;device_index++){
@@ -179,11 +169,10 @@ static int get_input_fds(struct pollfd *pollfds){
 	}
 	
 	if(found_device_count==0){
-		log_write(LOG_ERR,"No matching input devices found!  Check permissions.");
-		return EXIT_FAILURE;
+		return -1;
 	}
 	
-	return EXIT_SUCCESS;
+	return found_device_count;
 }
 
 static void set_brightness(const int brightness){
@@ -290,6 +279,9 @@ void *timer(void *arg){
 int main(const int argc,char **argv){
 	is_daemon=!isatty(1);
 	
+	int configured_on_sec=DEFAULT_ON_SEC;
+	int configured_brightness=DEFAULT_BRIGHTNESS;
+	
 	int option;
 	while((option=getopt_long(argc,argv,"",long_options,NULL))!=EOF){
 		switch(option){
@@ -324,30 +316,33 @@ int main(const int argc,char **argv){
 		return EXIT_FAILURE;
 	}
 	
-	if(get_input_fds(found_device_pollfds)){
+	struct pollfd found_device_pollfds[SEARCH_DEVICE_COUNT];
+	int found_device_count=get_input_fds(found_device_pollfds);
+	if(found_device_count<1){
+		log_write(LOG_ERR,"No matching input devices found!  Check permissions.");
 		exit(EXIT_FAILURE);
 	}
 	
 	// Set input_batch_delay to half configured_on_sec with an upper limit of 5 seconds
+	struct timespec input_batch_delay={};
 	timespec_add_nsec(&input_batch_delay,min((long)configured_on_sec*NSEC_PER_SEC/2,(long)NSEC_PER_SEC*5));
 	
 	log_write(LOG_INFO,"Backlight timeout: %d second%s",configured_on_sec,configured_on_sec!=1?"s":"");
 	log_write(LOG_INFO,"Brightness level: %d%%",configured_brightness);
 	log_write(LOG_INFO,"Fade duration: %d microsecond%s",configured_fade_duration_nsec/NSEC_PER_USEC,configured_fade_duration_nsec/NSEC_PER_USEC!=1?"s":"");
 	
-	pthread_condattr_t timer_condattr;
-	pthread_condattr_init(&timer_condattr);
-	pthread_condattr_setclock(&timer_condattr,CLOCK_MONOTONIC);
-	pthread_cond_init(&timer_cond,&timer_condattr);
-	pthread_mutex_init(&timer_mutex,NULL);
+	pthread_condattr_t condattr;
+	pthread_condattr_init(&condattr);
+	pthread_condattr_setclock(&condattr,CLOCK_MONOTONIC);
 	
-	pthread_condattr_t fader_condattr;
-	pthread_condattr_init(&fader_condattr);
-	pthread_condattr_setclock(&fader_condattr,CLOCK_MONOTONIC);
-	pthread_cond_init(&fader_cond,&timer_condattr);
+	pthread_cond_init(&fader_cond,&condattr);
 	pthread_mutex_init(&fader_mutex,NULL);
-	
+	pthread_t fader_thread;
 	pthread_create(&fader_thread,NULL,fader,NULL);
+	
+	pthread_cond_init(&timer_cond,&condattr);
+	pthread_mutex_init(&timer_mutex,NULL);
+	pthread_t timer_thread;
 	pthread_create(&timer_thread,NULL,timer,NULL);
 	
 	// Set up the exit handler
