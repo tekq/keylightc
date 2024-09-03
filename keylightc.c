@@ -40,10 +40,10 @@
 #define NSEC_PER_SEC 1000000000
 #define NSEC_PER_USEC 1000
 
-#define DEV_INPUT_EVENT "/dev/input"
-#define EVENT_DEV_NAME "event"
+#define INPUT_DEVICE_DIRECTORY_PATH "/dev/input"
+#define EVENT_DEVICE_FILENAME_PREFIX "event"
 
-#define BACKLIGHT_DEVICE "/sys/class/leds/chromeos::kbd_backlight/brightness"
+#define BRIGHTNESS_FILE_PATH "/sys/class/leds/chromeos::kbd_backlight/brightness"
 #define DEFAULT_ON_SEC 10
 #define DEFAULT_BRIGHTNESS 30
 #define DEFAULT_FADE_DURATION_USEC 100000
@@ -113,8 +113,8 @@ static void fade_init(int const brightness){
 	pthread_mutex_unlock(&fader_mutex);
 }
 
-static int const is_event_device(struct dirent const * const restrict dir){
-	return strncmp(EVENT_DEV_NAME,dir->d_name,5)==0;
+static int const is_event_device(struct dirent const * const restrict directory_entry){
+	return strncmp(EVENT_DEVICE_FILENAME_PREFIX,directory_entry->d_name,5)==0;
 }
 
 static long const min(long const x,long const y){
@@ -136,7 +136,7 @@ static bool const string_in_array(char const * const restrict string,char const 
 
 static int const get_input_fds(struct pollfd * const restrict pollfds){
 	struct dirent **device_name_list={};
-	int device_count=scandir(DEV_INPUT_EVENT,&device_name_list,is_event_device,alphasort);
+	int device_count=scandir(INPUT_DEVICE_DIRECTORY_PATH,&device_name_list,is_event_device,alphasort);
 	int found_device_count=0;
 	int clock_type=CLOCK_MONOTONIC;
 	if(device_count<=0){
@@ -148,7 +148,7 @@ static int const get_input_fds(struct pollfd * const restrict pollfds){
 		int fd=-1;
 		char device_name[256]="???";
 		
-		snprintf(device_filename,sizeof(device_filename),"%s/%s",DEV_INPUT_EVENT,device_name_list[device_index]->d_name);
+		snprintf(device_filename,sizeof(device_filename),"%s/%s",INPUT_DEVICE_DIRECTORY_PATH,device_name_list[device_index]->d_name);
 		fd=open(device_filename,O_RDONLY);
 		if(fd<0){
 			continue;
@@ -307,7 +307,7 @@ int main(int const argc,char * const * const argv){
 		}
 	}
 	
-	brightness_file=fopen(BACKLIGHT_DEVICE,"w");
+	brightness_file=fopen(BRIGHTNESS_FILE_PATH,"w");
 	if(brightness_file==NULL){
 		log_write(LOG_ERR,"Failed to open backlight device!  Check permissions and ensure you are running Linux kernel 6.11 or later.");
 		return EXIT_FAILURE;
