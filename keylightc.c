@@ -50,12 +50,12 @@
 
 // This must be set exactly to the number of elements in the array or else a segfault will occur
 #define SEARCH_DEVICE_COUNT 2
-static const char *search_devices[SEARCH_DEVICE_COUNT]={
+static char const * const restrict search_devices[SEARCH_DEVICE_COUNT]={
 	"AT Translated Set 2 keyboard",
 	"PIXA3854:00 093A:0274 Touchpad",
 };
 
-static const struct option long_options[]={
+static struct option const long_options[]={
 	{"brightness",required_argument,0,'b'},
 	{"fadeduration",required_argument,0,'f'},
 	{"timeout",required_argument,0,'t'},
@@ -84,7 +84,7 @@ static bool exit_requested=false;
 
 static bool is_daemon;
 
-static void log_write(const int priority,const char *format,...){
+static void log_write(int const priority,char const * const restrict format,...){
 	va_list args;
 	va_start(args,format);
 	if(is_daemon){
@@ -100,11 +100,11 @@ static void log_write(const int priority,const char *format,...){
 	va_end(args);
 }
 
-static void exit_handler(const int signal_number){
+static void exit_handler(int const signal_number){
 	exit_requested=true;
 }
 
-static void fade_init(const int brightness){
+static void fade_init(int const brightness){
 	pthread_mutex_lock(&fader_mutex);
 	desired_brightness=brightness;
 	fade_interval_nsec=configured_fade_duration_nsec/abs(current_brightness-desired_brightness);
@@ -113,11 +113,11 @@ static void fade_init(const int brightness){
 	pthread_mutex_unlock(&fader_mutex);
 }
 
-static int is_event_device(const struct dirent *dir){
+static int const is_event_device(struct dirent const * const restrict dir){
 	return strncmp(EVENT_DEV_NAME,dir->d_name,5)==0;
 }
 
-static long min(const long x,const long y){
+static long const min(long const x,long const y){
 	if(x<y){
 		return x;
 	}else{
@@ -125,7 +125,7 @@ static long min(const long x,const long y){
 	}
 }
 
-static bool string_in_array(const char *string,const char *array[],const int array_length){
+static bool const string_in_array(char const * const restrict string,char const * const restrict array[],int const array_length){
 	for(int array_index=0;array_index<array_length;array_index++){
 		if(!strcmp(string,array[array_index])){
 			return true;
@@ -134,7 +134,7 @@ static bool string_in_array(const char *string,const char *array[],const int arr
 	return false;
 }
 
-static int get_input_fds(struct pollfd *pollfds){
+static int const get_input_fds(struct pollfd * const restrict pollfds){
 	struct dirent **device_name_list={};
 	int device_count=scandir(DEV_INPUT_EVENT,&device_name_list,is_event_device,alphasort);
 	int found_device_count=0;
@@ -175,12 +175,12 @@ static int get_input_fds(struct pollfd *pollfds){
 	return found_device_count;
 }
 
-static void set_brightness(const int brightness){
+static void set_brightness(int const brightness){
 	fprintf(brightness_file,"%d",brightness);
 	fflush(brightness_file);
 }
 
-static int string_to_int(int *result,const int min,const int max,const char *string){
+static int const string_to_int(int * const restrict result,int const min,int const max,char const * const restrict string){
 	errno=0;
 	const long long_value=strtol(string,NULL,10);
 	if(errno!=0){
@@ -193,7 +193,7 @@ static int string_to_int(int *result,const int min,const int max,const char *str
 	return EXIT_FAILURE;
 }
 
-static void timespec_add_nsec(struct timespec *timespec,const long nsec){
+static void timespec_add_nsec(struct timespec * const restrict timespec,long const nsec){
 	timespec->tv_sec+=nsec/NSEC_PER_SEC;
 	timespec->tv_nsec+=nsec%NSEC_PER_SEC;
 	if(timespec->tv_nsec>=NSEC_PER_SEC){
@@ -202,7 +202,7 @@ static void timespec_add_nsec(struct timespec *timespec,const long nsec){
 	}
 }
 
-static int timespec_cmp(const struct timespec ts1,const struct timespec ts2){
+static int const timespec_cmp(struct timespec const ts1,struct timespec const ts2){
 	if(ts1.tv_sec==ts2.tv_sec&&ts1.tv_nsec==ts2.tv_nsec){
 		return 0;
 	}else if((ts1.tv_sec>ts2.tv_sec)||(ts1.tv_sec==ts2.tv_sec&&ts1.tv_nsec>ts2.tv_nsec)){
@@ -212,7 +212,7 @@ static int timespec_cmp(const struct timespec ts1,const struct timespec ts2){
 	}
 }
 
-static int usage(){
+static int const usage(){
 	log_write(LOG_NOTICE,"Usage: keylightc [--brightness <brightness>] [--fadeduration <fadeduration>] [--timeout <timeout>]");
 	log_write(LOG_NOTICE,"keylightc - automatic keyboard backlight daemon for Framework laptops");
 	log_write(LOG_NOTICE,"Options:");
@@ -223,7 +223,7 @@ static int usage(){
 	return EXIT_FAILURE;
 }
 
-void *fader(void *arg){
+void *fader(void * const restrict arg){
 	pthread_mutex_lock(&fader_mutex);
 	
 	while(true){
@@ -255,7 +255,7 @@ void *fader(void *arg){
 	}
 }
 
-void *timer(void *arg){
+void *timer(void * const restrict arg){
 	pthread_mutex_lock(&timer_mutex);
 	
 	while(true){
@@ -276,7 +276,7 @@ void *timer(void *arg){
 	}
 }
 
-int main(const int argc,char **argv){
+int main(int const argc,char * const * const argv){
 	is_daemon=!isatty(1);
 	
 	int configured_on_sec=DEFAULT_ON_SEC;
