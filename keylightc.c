@@ -146,7 +146,7 @@ static int const get_input_fds(struct pollfd * const restrict pollfds){
 	for(int device_index=0;device_index<device_count&&found_device_count<=SEARCH_DEVICE_COUNT;device_index++){
 		char device_filename[4096];
 		int fd=-1;
-		char device_name[256]="???";
+		char device_name[256];
 		
 		snprintf(device_filename,sizeof(device_filename),"%s/%s",INPUT_DEVICE_DIRECTORY_PATH,device_name_list[device_index]->d_name);
 		fd=open(device_filename,O_RDONLY);
