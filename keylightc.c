@@ -135,7 +135,7 @@ static bool const string_in_array(char const * const restrict string,char const 
 }
 
 static int const get_input_fds(struct pollfd * const restrict pollfds){
-	struct dirent **device_name_list={};
+	struct dirent **device_name_list;
 	int device_count=scandir(INPUT_DEVICE_DIRECTORY_PATH,&device_name_list,is_event_device,alphasort);
 	int found_device_count=0;
 	int clock_type=CLOCK_MONOTONIC;
