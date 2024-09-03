@@ -108,7 +108,7 @@ static void fade_init(int const brightness){
 	pthread_mutex_lock(&fader_mutex);
 	desired_brightness=brightness;
 	fade_interval_nsec=configured_fade_duration_nsec/abs(current_brightness-desired_brightness);
-	next_fade_step_time=(struct timespec){};
+	clock_gettime(CLOCK_MONOTONIC,&next_fade_step_time);
 	pthread_cond_signal(&fader_cond);
 	pthread_mutex_unlock(&fader_mutex);
 }
@@ -226,13 +226,11 @@ static int const usage(){
 void *fader(void * const restrict arg){
 	pthread_mutex_lock(&fader_mutex);
 	
+	int ret=0;
 	while(true){
-		struct timespec current_time;
-		clock_gettime(CLOCK_MONOTONIC,&current_time);
-		
 		if(current_brightness!=desired_brightness){
 			// If the current brightness is not the desired brightness…
-			if(timespec_cmp(current_time,next_fade_step_time)>=0){
+			if(ret==ETIMEDOUT){
 				// …and the next fade step is due, fade in/out
 				if(current_brightness>desired_brightness){
 					current_brightness--;
@@ -241,16 +239,15 @@ void *fader(void * const restrict arg){
 				}
 				set_brightness(current_brightness);
 				
-				// Calculate next_fade_step_time based on current_time and fade_interval_nsec
-				memcpy(&next_fade_step_time,&current_time,sizeof(struct timespec));
+				// Calculate next_fade_step_time based on current next_fade_step_time and fade_interval_nsec
 				timespec_add_nsec(&next_fade_step_time,fade_interval_nsec);
 			}
 			
 			// Wait until next_fade_step_time
-			pthread_cond_timedwait(&fader_cond,&fader_mutex,&next_fade_step_time);
+			ret=pthread_cond_timedwait(&fader_cond,&fader_mutex,&next_fade_step_time);
 		}else{
 			// Otherwise, wait to be signaled
-			pthread_cond_wait(&fader_cond,&fader_mutex);
+			ret=pthread_cond_wait(&fader_cond,&fader_mutex);
 		}
 	}
 }
