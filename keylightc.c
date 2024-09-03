@@ -104,11 +104,11 @@ static void exit_handler(int const signal_number){
 	exit_requested=true;
 }
 
-static void fade_init(int const brightness){
+static void fade_init(struct timespec const start_time,int const brightness){
 	pthread_mutex_lock(&fader_mutex);
 	desired_brightness=brightness;
 	fade_interval_nsec=configured_fade_duration_nsec/abs(current_brightness-desired_brightness);
-	clock_gettime(CLOCK_MONOTONIC,&next_fade_step_time);
+	next_fade_step_time=start_time;
 	pthread_cond_signal(&fader_cond);
 	pthread_mutex_unlock(&fader_mutex);
 }
@@ -265,7 +265,7 @@ void *timer(void * const restrict arg){
 		}else if(timespec_cmp(current_time,off_time)>=0){
 			// If the backlight is on and current_time is greater than or equal to off_time, turn the backlight off
 			log_write(LOG_INFO,"Turning backlight off");
-			fade_init(0);
+			fade_init(off_time,0);
 		}else{
 			// Otherwise, wait until off_time
 			pthread_cond_timedwait(&timer_cond,&timer_mutex,&off_time);
@@ -384,7 +384,7 @@ int main(int const argc,char * const * const argv){
 						event_time.tv_sec=input_event[event_index].input_event_sec;
 						event_time.tv_nsec=input_event[event_index].input_event_usec*NSEC_PER_USEC;
 						if(timespec_cmp(event_time,latest_event_time)>=0){
-							memcpy(&latest_event_time,&event_time,sizeof(struct timespec));
+							latest_event_time=event_time;
 							new_event=true;
 						}
 						break;
@@ -403,7 +403,7 @@ int main(int const argc,char * const * const argv){
 			if(desired_brightness==0){
 				// Turn it on
 				log_write(LOG_INFO,"Turning backlight on");
-				fade_init(configured_brightness);
+				fade_init(latest_event_time,configured_brightness);
 				
 				// And signal the timer thread to start timing down to turn it off
 				pthread_cond_signal(&timer_cond);
