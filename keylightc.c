@@ -384,7 +384,7 @@ int main(int const argc,char * const * const argv){
 						event_time.tv_sec=input_event[event_index].input_event_sec;
 						event_time.tv_nsec=input_event[event_index].input_event_usec*NSEC_PER_USEC;
 						if(timespec_cmp(event_time,latest_event_time)>=0){
-							memcpy(&latest_event_time,&event_time,sizeof(struct timespec));
+							latest_event_time=event_time;
 							new_event=true;
 						}
 						break;
