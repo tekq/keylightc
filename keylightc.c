@@ -84,7 +84,7 @@ static bool exit_requested=false;
 
 static bool is_daemon;
 
-static void log_write(int priority,const char *format,...){
+static void log_write(const int priority,const char *format,...){
 	va_list args;
 	va_start(args,format);
 	if(is_daemon){
@@ -100,7 +100,7 @@ static void log_write(int priority,const char *format,...){
 	va_end(args);
 }
 
-static void exit_handler(int signal_number){
+static void exit_handler(const int signal_number){
 	exit_requested=true;
 }
 
@@ -125,7 +125,7 @@ static long min(const long x,const long y){
 	}
 }
 
-static bool string_in_array(const char *string,const char *array[],int array_length){
+static bool string_in_array(const char *string,const char *array[],const int array_length){
 	for(int array_index=0;array_index<array_length;array_index++){
 		if(!strcmp(string,array[array_index])){
 			return true;
