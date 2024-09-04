@@ -107,7 +107,11 @@ static void exit_handler(int const signal_number){
 static void fade_init(int const brightness){
 	pthread_mutex_lock(&fader_mutex);
 	desired_brightness=brightness;
-	fade_interval_nsec=configured_fade_duration_nsec/abs(current_brightness-desired_brightness);
+	if(current_brightness!=desired_brightness){
+		fade_interval_nsec=configured_fade_duration_nsec/abs(current_brightness-desired_brightness);
+	}else{
+		fade_interval_nsec=0;
+	}
 	clock_gettime(CLOCK_MONOTONIC,&next_fade_step_time);
 	pthread_cond_signal(&fader_cond);
 	pthread_mutex_unlock(&fader_mutex);
