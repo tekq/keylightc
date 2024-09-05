@@ -72,6 +72,7 @@ static pthread_mutex_t fader_mutex;
 static bool fade_init=false;
 static int desired_brightness=0;
 
+static bool off_time_changed=false;
 static struct timespec off_time={};
 
 static FILE *brightness_file=NULL;
@@ -258,20 +259,19 @@ void *fader(void * const restrict arg){
 void *timer(void * const restrict arg){
 	pthread_mutex_lock(&timer_mutex);
 	
+	int ret=0;
 	while(true){
-		struct timespec current_time;
-		clock_gettime(CLOCK_MONOTONIC,&current_time);
-		
 		if(desired_brightness==0){
 			// If the backlight is already off, wait to be signaled once it has been turned back on
-			pthread_cond_wait(&timer_cond,&timer_mutex);
-		}else if(timespec_cmp(current_time,off_time)>=0){
+			ret=pthread_cond_wait(&timer_cond,&timer_mutex);
+		}else if(ret==ETIMEDOUT&&!off_time_changed){
 			// If the backlight is on and current_time is greater than or equal to off_time, turn the backlight off
 			log_write(LOG_INFO,"Turning backlight off");
 			start_fade(0);
 		}else{
-			// Otherwise, wait until off_time
-			pthread_cond_timedwait(&timer_cond,&timer_mutex,&off_time);
+			// Otherwise, clear off_time_changed and wait until off_time
+			off_time_changed=false;
+			ret=pthread_cond_timedwait(&timer_cond,&timer_mutex,&off_time);
 		}
 	}
 }
@@ -411,6 +411,9 @@ int main(int const argc,char * const * const argv){
 				
 				// And signal the timer thread to start timing down to turn it off
 				pthread_cond_signal(&timer_cond);
+			}else{
+				// Otherwise, set the flag to let the timer thread know that off_time changed
+				off_time_changed=true;
 			}
 			pthread_mutex_unlock(&timer_mutex);
 			
