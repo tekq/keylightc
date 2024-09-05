@@ -69,19 +69,14 @@ static pthread_mutex_t timer_mutex;
 static pthread_cond_t fader_cond;
 static pthread_mutex_t fader_mutex;
 
-static int current_brightness=0;
+static bool fade_init=false;
 static int desired_brightness=0;
 
 static struct timespec off_time={};
 
-static int configured_fade_duration_nsec=DEFAULT_FADE_DURATION_USEC*NSEC_PER_USEC;
-static int fade_interval_nsec=0;
-static struct timespec next_fade_step_time={};
-
 static FILE *brightness_file=NULL;
 
 static bool exit_requested=false;
-
 static bool is_daemon;
 
 static void log_write(int const priority,char const * const restrict format,...){
@@ -104,15 +99,10 @@ static void exit_handler(int const signal_number){
 	exit_requested=true;
 }
 
-static void fade_init(int const brightness){
+static void start_fade(int const brightness){
 	pthread_mutex_lock(&fader_mutex);
+	fade_init=true;
 	desired_brightness=brightness;
-	if(current_brightness!=desired_brightness){
-		fade_interval_nsec=configured_fade_duration_nsec/abs(current_brightness-desired_brightness);
-	}else{
-		fade_interval_nsec=0;
-	}
-	clock_gettime(CLOCK_MONOTONIC,&next_fade_step_time);
 	pthread_cond_signal(&fader_cond);
 	pthread_mutex_unlock(&fader_mutex);
 }
@@ -231,6 +221,10 @@ void *fader(void * const restrict arg){
 	pthread_mutex_lock(&fader_mutex);
 	
 	int ret=0;
+	int current_brightness=0;
+	int fade_interval_nsec=0;
+	int fade_duration_nsec=*(int*)arg;
+	struct timespec next_fade_step_time={};
 	while(true){
 		if(current_brightness!=desired_brightness){
 			// If the current brightness is not the desired brightness…
@@ -245,6 +239,11 @@ void *fader(void * const restrict arg){
 				
 				// Calculate next_fade_step_time based on current next_fade_step_time and fade_interval_nsec
 				timespec_add_nsec(&next_fade_step_time,fade_interval_nsec);
+			}else if(fade_init){
+				// If the fade step is not due and fade_init is required, initialize the fade
+				clock_gettime(CLOCK_MONOTONIC,&next_fade_step_time);
+				fade_interval_nsec=fade_duration_nsec/abs(current_brightness-desired_brightness);
+				fade_init=false;
 			}
 			
 			// Wait until next_fade_step_time
@@ -269,7 +268,7 @@ void *timer(void * const restrict arg){
 		}else if(timespec_cmp(current_time,off_time)>=0){
 			// If the backlight is on and current_time is greater than or equal to off_time, turn the backlight off
 			log_write(LOG_INFO,"Turning backlight off");
-			fade_init(0);
+			start_fade(0);
 		}else{
 			// Otherwise, wait until off_time
 			pthread_cond_timedwait(&timer_cond,&timer_mutex,&off_time);
@@ -282,6 +281,7 @@ int main(int const argc,char * const * const argv){
 	
 	int configured_on_sec=DEFAULT_ON_SEC;
 	int configured_brightness=DEFAULT_BRIGHTNESS;
+	int configured_fade_duration_nsec=DEFAULT_FADE_DURATION_USEC*NSEC_PER_USEC;
 	
 	int option;
 	while((option=getopt_long(argc,argv,"",long_options,NULL))!=EOF){
@@ -339,7 +339,7 @@ int main(int const argc,char * const * const argv){
 	pthread_cond_init(&fader_cond,&condattr);
 	pthread_mutex_init(&fader_mutex,NULL);
 	pthread_t fader_thread;
-	pthread_create(&fader_thread,NULL,fader,NULL);
+	pthread_create(&fader_thread,NULL,fader,&configured_fade_duration_nsec);
 	
 	pthread_cond_init(&timer_cond,&condattr);
 	pthread_mutex_init(&timer_mutex,NULL);
@@ -407,7 +407,7 @@ int main(int const argc,char * const * const argv){
 			if(desired_brightness==0){
 				// Turn it on
 				log_write(LOG_INFO,"Turning backlight on");
-				fade_init(configured_brightness);
+				start_fade(configured_brightness);
 				
 				// And signal the timer thread to start timing down to turn it off
 				pthread_cond_signal(&timer_cond);
