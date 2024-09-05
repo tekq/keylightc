@@ -50,7 +50,7 @@
 
 // This must be set exactly to the number of elements in the array or else a segfault will occur
 #define SEARCH_DEVICE_COUNT 2
-static char const * const restrict search_devices[SEARCH_DEVICE_COUNT]={
+static char const *const restrict search_devices[SEARCH_DEVICE_COUNT]={
 	"AT Translated Set 2 keyboard",
 	"PIXA3854:00 093A:0274 Touchpad",
 };
@@ -79,11 +79,11 @@ static bool exit_requested=false;
 static bool is_daemon;
 
 struct fader_config{
-	FILE * const brightness_file;
+	FILE *const brightness_file;
 	int const fade_duration_nsec;
 };
 
-static void log_write(int const priority,char const * const restrict format,...){
+static void log_write(int const priority,char const *const restrict format,...){
 	va_list args;
 	va_start(args,format);
 	if(is_daemon){
@@ -111,7 +111,7 @@ static void start_fade(int const brightness){
 	pthread_mutex_unlock(&fader_mutex);
 }
 
-static int const is_event_device(struct dirent const * const restrict directory_entry){
+static int const is_event_device(struct dirent const *const restrict directory_entry){
 	return strncmp(EVENT_DEVICE_FILENAME_PREFIX,directory_entry->d_name,5)==0;
 }
 
@@ -123,7 +123,7 @@ static long const min(long const x,long const y){
 	}
 }
 
-static bool const string_in_array(char const * const restrict string,char const * const restrict array[],int const array_length){
+static bool const string_in_array(char const *const restrict string,char const *const restrict array[],int const array_length){
 	for(int array_index=0;array_index<array_length;array_index++){
 		if(!strcmp(string,array[array_index])){
 			return true;
@@ -132,7 +132,7 @@ static bool const string_in_array(char const * const restrict string,char const 
 	return false;
 }
 
-static int const get_input_fds(struct pollfd * const restrict pollfds){
+static int const get_input_fds(struct pollfd *const restrict pollfds){
 	struct dirent **device_name_list;
 	int device_count=scandir(INPUT_DEVICE_DIRECTORY_PATH,&device_name_list,is_event_device,alphasort);
 	int found_device_count=0;
@@ -173,12 +173,12 @@ static int const get_input_fds(struct pollfd * const restrict pollfds){
 	return found_device_count;
 }
 
-static void set_brightness(FILE * const restrict brightness_file,int const brightness){
+static void set_brightness(FILE *const restrict brightness_file,int const brightness){
 	fprintf(brightness_file,"%d",brightness);
 	fflush(brightness_file);
 }
 
-static int const string_to_int(int * const restrict result,int const min,int const max,char const * const restrict string){
+static int const string_to_int(int *const restrict result,int const min,int const max,char const *const restrict string){
 	errno=0;
 	const long long_value=strtol(string,NULL,10);
 	if(errno!=0){
@@ -191,7 +191,7 @@ static int const string_to_int(int * const restrict result,int const min,int con
 	return EXIT_FAILURE;
 }
 
-static void timespec_add_nsec(struct timespec * const restrict timespec,long const nsec){
+static void timespec_add_nsec(struct timespec *const restrict timespec,long const nsec){
 	timespec->tv_sec+=nsec/NSEC_PER_SEC;
 	timespec->tv_nsec+=nsec%NSEC_PER_SEC;
 	if(timespec->tv_nsec>=NSEC_PER_SEC){
@@ -221,7 +221,7 @@ static int const usage(){
 	return EXIT_FAILURE;
 }
 
-void *fader(void * const restrict arg){
+void *fader(void *const restrict arg){
 	pthread_mutex_lock(&fader_mutex);
 	
 	struct fader_config fader_config=*(struct fader_config*)arg;
@@ -260,7 +260,7 @@ void *fader(void * const restrict arg){
 	}
 }
 
-void *timer(void * const restrict arg){
+void *timer(void *const restrict arg){
 	pthread_mutex_lock(&timer_mutex);
 	
 	int ret=0;
@@ -280,7 +280,7 @@ void *timer(void * const restrict arg){
 	}
 }
 
-int main(int const argc,char * const * const argv){
+int main(int const argc,char *const *const argv){
 	is_daemon=!isatty(1);
 	
 	int configured_on_sec=DEFAULT_ON_SEC;
@@ -315,7 +315,7 @@ int main(int const argc,char * const * const argv){
 		}
 	}
 	
-	FILE * const brightness_file=fopen(BRIGHTNESS_FILE_PATH,"w");
+	FILE *const brightness_file=fopen(BRIGHTNESS_FILE_PATH,"w");
 	if(brightness_file==NULL){
 		log_write(LOG_ERR,"Failed to open backlight device!  Check permissions and ensure you are running Linux kernel 6.11 or later.");
 		return EXIT_FAILURE;
