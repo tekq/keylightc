@@ -75,10 +75,13 @@ static int desired_brightness=0;
 static bool off_time_changed=false;
 static struct timespec off_time={};
 
-static FILE *brightness_file=NULL;
-
 static bool exit_requested=false;
 static bool is_daemon;
+
+struct fader_config{
+	FILE * const brightness_file;
+	int const fade_duration_nsec;
+};
 
 static void log_write(int const priority,char const * const restrict format,...){
 	va_list args;
@@ -170,7 +173,7 @@ static int const get_input_fds(struct pollfd * const restrict pollfds){
 	return found_device_count;
 }
 
-static void set_brightness(int const brightness){
+static void set_brightness(FILE * const restrict brightness_file,int const brightness){
 	fprintf(brightness_file,"%d",brightness);
 	fflush(brightness_file);
 }
@@ -221,11 +224,12 @@ static int const usage(){
 void *fader(void * const restrict arg){
 	pthread_mutex_lock(&fader_mutex);
 	
-	int ret=0;
+	struct fader_config fader_config=*(struct fader_config*)arg;
 	int current_brightness=0;
 	int fade_interval_nsec=0;
-	int fade_duration_nsec=*(int*)arg;
 	struct timespec next_fade_step_time={};
+	
+	int ret=0;
 	while(true){
 		if(current_brightness!=desired_brightness){
 			// If the current brightness is not the desired brightness…
@@ -236,14 +240,14 @@ void *fader(void * const restrict arg){
 				}else{
 					current_brightness++;
 				}
-				set_brightness(current_brightness);
+				set_brightness(fader_config.brightness_file,current_brightness);
 				
 				// Calculate next_fade_step_time based on current next_fade_step_time and fade_interval_nsec
 				timespec_add_nsec(&next_fade_step_time,fade_interval_nsec);
 			}else if(fade_init){
 				// If the fade step is not due and fade_init is required, initialize the fade
 				clock_gettime(CLOCK_MONOTONIC,&next_fade_step_time);
-				fade_interval_nsec=fade_duration_nsec/abs(current_brightness-desired_brightness);
+				fade_interval_nsec=fader_config.fade_duration_nsec/abs(current_brightness-desired_brightness);
 				fade_init=false;
 			}
 			
@@ -311,14 +315,14 @@ int main(int const argc,char * const * const argv){
 		}
 	}
 	
-	brightness_file=fopen(BRIGHTNESS_FILE_PATH,"w");
+	FILE * const brightness_file=fopen(BRIGHTNESS_FILE_PATH,"w");
 	if(brightness_file==NULL){
 		log_write(LOG_ERR,"Failed to open backlight device!  Check permissions and ensure you are running Linux kernel 6.11 or later.");
 		return EXIT_FAILURE;
 	}
 	
 	struct pollfd found_device_pollfds[SEARCH_DEVICE_COUNT];
-	int found_device_count=get_input_fds(found_device_pollfds);
+	int const found_device_count=get_input_fds(found_device_pollfds);
 	if(found_device_count<1){
 		log_write(LOG_ERR,"No matching input devices found!  Check permissions.");
 		exit(EXIT_FAILURE);
@@ -339,7 +343,7 @@ int main(int const argc,char * const * const argv){
 	pthread_cond_init(&fader_cond,&condattr);
 	pthread_mutex_init(&fader_mutex,NULL);
 	pthread_t fader_thread;
-	pthread_create(&fader_thread,NULL,fader,&configured_fade_duration_nsec);
+	pthread_create(&fader_thread,NULL,fader,&(struct fader_config){.brightness_file=brightness_file,.fade_duration_nsec=configured_fade_duration_nsec});
 	
 	pthread_cond_init(&timer_cond,&condattr);
 	pthread_mutex_init(&timer_mutex,NULL);
@@ -352,7 +356,7 @@ int main(int const argc,char * const * const argv){
 	sigaction(SIGINT,&exit_action,NULL);
 	sigaction(SIGTERM,&exit_action,NULL);
 	
-	set_brightness(0);
+	set_brightness(brightness_file,0);
 	
 	struct timespec latest_event_time={};
 	while(true){
@@ -426,7 +430,7 @@ int main(int const argc,char * const * const argv){
 	pthread_cancel(timer_thread);
 	pthread_join(fader_thread,NULL);
 	pthread_join(timer_thread,NULL);
-	set_brightness(0);
+	set_brightness(brightness_file,0);
 	
 	return EXIT_SUCCESS;
 }
