@@ -186,20 +186,14 @@ static void timespec_add_nsec(struct timespec *const restrict timespec,long cons
 	}
 }
 
-static int const timespec_cmp(struct timespec const ts1,struct timespec const ts2){
-	if(ts1.tv_sec==ts2.tv_sec&&ts1.tv_nsec==ts2.tv_nsec){
-		return 0;
-	}else if((ts1.tv_sec>ts2.tv_sec)||(ts1.tv_sec==ts2.tv_sec&&ts1.tv_nsec>ts2.tv_nsec)){
-		return 1;
-	}else{
-		return -1;
-	}
+static bool const timespec_gt(struct timespec const ts1,struct timespec const ts2){
+	return (ts1.tv_sec>ts2.tv_sec)||(ts1.tv_sec==ts2.tv_sec&&ts1.tv_nsec>ts2.tv_nsec);
 }
 
 static void timespec_sub(struct timespec *const restrict ts1,struct timespec const ts2){
 	ts1->tv_sec-=ts2.tv_sec;
 	ts1->tv_nsec-=ts2.tv_nsec;
-	if(ts1->tv_nsec<0&&ts1->tv_sec>=1){
+	if(ts1->tv_nsec<0){
 		ts1->tv_sec--;
 		ts1->tv_nsec+=NSEC_PER_SEC;
 	}
@@ -358,7 +352,7 @@ int main(int const argc,char *const *const argv){
 						candidate_off_time.tv_nsec=input_events[event_index].input_event_usec*NSEC_PER_USEC;
 						
 						// If candidate_off_time is later than off_time, update off_time
-						if(timespec_cmp(candidate_off_time,off_time)==1){
+						if(timespec_gt(candidate_off_time,off_time)){
 							off_time=candidate_off_time;
 						}
 						break;
@@ -369,7 +363,7 @@ int main(int const argc,char *const *const argv){
 		
 		struct timespec current_time;
 		clock_gettime(CLOCK_MONOTONIC,&current_time);
-		if(timespec_cmp(off_time,current_time)==1){
+		if(timespec_gt(off_time,current_time)){
 			// If the off_time is in the future
 			if(desired_brightness==0){
 				// And the backlight is currently off, turn it on
