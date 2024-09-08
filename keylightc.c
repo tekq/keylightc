@@ -249,7 +249,7 @@ void *fader(void *const restrict arg){
 }
 
 int main(int const argc,char *const *const argv){
-	is_daemon=!isatty(1);
+	is_daemon=!isatty(STDOUT_FILENO);
 	
 	int configured_on_sec=DEFAULT_ON_SEC;
 	int configured_brightness=DEFAULT_BRIGHTNESS;
