@@ -153,7 +153,6 @@ static int const get_input_fds(struct pollfd *const restrict pollfds){
 
 static void set_brightness(FILE *const restrict brightness_file,int const brightness){
 	fprintf(brightness_file,"%d",brightness);
-	fflush(brightness_file);
 }
 
 static void start_fade(int const brightness){
@@ -289,6 +288,7 @@ int main(int const argc,char *const *const argv){
 		log_write(LOG_ERR,"Failed to open backlight device!  Check permissions and ensure you are running Linux kernel 6.11 or later.");
 		return EXIT_FAILURE;
 	}
+	setvbuf(brightness_file,NULL,_IONBF,0);
 	
 	struct pollfd found_device_pollfds[SEARCH_DEVICE_COUNT];
 	int const found_device_count=get_input_fds(found_device_pollfds);
