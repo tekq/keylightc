@@ -115,9 +115,6 @@ static int const get_input_fds(struct pollfd *const restrict pollfds){
 	int device_count=scandir(INPUT_DEVICE_DIRECTORY_PATH,&device_name_list,is_event_device,alphasort);
 	int found_device_count=0;
 	int clock_type=CLOCK_MONOTONIC;
-	if(device_count<=0){
-		return -1;
-	}
 	
 	for(int device_index=0;device_index<device_count&&found_device_count<=SEARCH_DEVICE_COUNT;device_index++){
 		char device_filename[4096];
@@ -144,10 +141,6 @@ static int const get_input_fds(struct pollfd *const restrict pollfds){
 		free(device_name_list[device_index]);
 	}
 	
-	if(found_device_count==0){
-		return -1;
-	}
-	
 	return found_device_count;
 }
 
@@ -168,8 +161,7 @@ static int const string_to_int(int *const restrict result,int const min,int cons
 	const long long_value=strtol(string,NULL,10);
 	if(errno!=0){
 		return errno;
-	}
-	if(long_value>=min&&long_value<=max){
+	}else if(long_value>=min&&long_value<=max){
 		*result=(int)long_value;
 		return EXIT_SUCCESS;
 	}
