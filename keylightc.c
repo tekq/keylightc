@@ -181,15 +181,6 @@ static bool const timespec_gt(struct timespec const ts1,struct timespec const ts
 	return (ts1.tv_sec>ts2.tv_sec)||(ts1.tv_sec==ts2.tv_sec&&ts1.tv_nsec>ts2.tv_nsec);
 }
 
-static void timespec_sub(struct timespec *const restrict ts1,struct timespec const ts2){
-	ts1->tv_sec-=ts2.tv_sec;
-	ts1->tv_nsec-=ts2.tv_nsec;
-	if(ts1->tv_nsec<0){
-		ts1->tv_sec--;
-		ts1->tv_nsec+=NSEC_PER_SEC;
-	}
-}
-
 static int const usage(){
 	log_write(LOG_NOTICE,"Usage: keylightc [--brightness <brightness>] [--fadeduration <fadeduration>] [--timeout <timeout>]");
 	log_write(LOG_NOTICE,"keylightc - automatic keyboard backlight daemon for Framework laptops");
@@ -360,9 +351,7 @@ int main(int const argc,char *const *const argv){
 			}
 			
 			// Sleep until off_time
-			struct timespec sleep_until=off_time;
-			timespec_sub(&sleep_until,current_time);
-			nanosleep(&sleep_until,NULL);
+			clock_nanosleep(CLOCK_MONOTONIC,TIMER_ABSTIME,&off_time,NULL);
 		}else if(desired_brightness==configured_brightness){
 			// Otherwise, turn it off
 			log_write(LOG_INFO,"Turning backlight off");
