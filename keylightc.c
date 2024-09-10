@@ -363,7 +363,7 @@ int main(int const argc,char *const *const argv){
 			struct timespec sleep_until=off_time;
 			timespec_sub(&sleep_until,current_time);
 			nanosleep(&sleep_until,NULL);
-		}else{
+		}else if(desired_brightness==configured_brightness){
 			// Otherwise, turn it off
 			log_write(LOG_INFO,"Turning backlight off");
 			start_fade(0);
