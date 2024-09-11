@@ -112,17 +112,16 @@ static bool const string_in_array(char const *const restrict string,char const *
 
 static int const get_input_fds(struct pollfd *const restrict pollfds){
 	struct dirent **device_name_list;
-	int device_count=scandir(INPUT_DEVICE_DIRECTORY_PATH,&device_name_list,is_event_device,alphasort);
-	int found_device_count=0;
-	int clock_type=CLOCK_MONOTONIC;
+	int const device_count=scandir(INPUT_DEVICE_DIRECTORY_PATH,&device_name_list,is_event_device,alphasort);
+	int const clock_type=CLOCK_MONOTONIC;
 	
+	int found_device_count=0;
 	for(int device_index=0;device_index<device_count&&found_device_count<=SEARCH_DEVICE_COUNT;device_index++){
 		char device_filename[4096];
-		int fd=-1;
 		char device_name[256];
 		
 		snprintf(device_filename,sizeof(device_filename),"%s/%s",INPUT_DEVICE_DIRECTORY_PATH,device_name_list[device_index]->d_name);
-		fd=open(device_filename,O_RDONLY);
+		int const fd=open(device_filename,O_RDONLY);
 		if(fd<0){
 			continue;
 		}
@@ -158,7 +157,7 @@ static void start_fade(int const brightness){
 
 static int const string_to_int(int *const restrict result,int const min,int const max,char const *const restrict string){
 	errno=0;
-	const long long_value=strtol(string,NULL,10);
+	long const long_value=strtol(string,NULL,10);
 	if(errno!=0){
 		return errno;
 	}else if(long_value>=min&&long_value<=max){
