@@ -65,8 +65,6 @@ static struct option const long_options[]={
 
 static pthread_cond_t fader_cond;
 static pthread_mutex_t fader_mutex;
-
-static bool fade_init=false;
 static int desired_brightness=0;
 
 static bool exit_requested=false;
@@ -149,7 +147,6 @@ static void set_brightness(FILE *const restrict brightness_file,int const bright
 
 static void start_fade(int const brightness){
 	pthread_mutex_lock(&fader_mutex);
-	fade_init=true;
 	desired_brightness=brightness;
 	pthread_cond_signal(&fader_cond);
 	pthread_mutex_unlock(&fader_mutex);
@@ -196,6 +193,7 @@ void *fader(void *const restrict arg){
 	
 	struct fader_config fader_config=*(struct fader_config*)arg;
 	int current_brightness=0;
+	int previous_desired_brightness=0;
 	int fade_interval_nsec=0;
 	struct timespec next_fade_step_time={};
 	
@@ -214,11 +212,11 @@ void *fader(void *const restrict arg){
 				
 				// Calculate next_fade_step_time based on current next_fade_step_time and fade_interval_nsec
 				timespec_add_nsec(&next_fade_step_time,fade_interval_nsec);
-			}else if(fade_init){
-				// If the fade step is not due and fade_init is required, initialize the fade
+			}else if(previous_desired_brightness!=desired_brightness){
+				// If the fade step is not due and desired_brightness has changed, initialize the fade
 				clock_gettime(CLOCK_MONOTONIC,&next_fade_step_time);
 				fade_interval_nsec=fader_config.fade_duration_nsec/abs(current_brightness-desired_brightness);
-				fade_init=false;
+				previous_desired_brightness=desired_brightness;
 			}
 			
 			// Wait until next_fade_step_time
