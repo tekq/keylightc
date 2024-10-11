@@ -48,6 +48,9 @@
 #define DEFAULT_BRIGHTNESS 30
 #define DEFAULT_FADE_DURATION_USEC 100000
 
+// SD_LISTEN_FDS_START, but we don't want to link to systemd
+#define BRIGHTNESS_FD 3
+
 // This must be set exactly to the number of elements in the array or else a segfault will occur
 #define SEARCH_DEVICE_COUNT 2
 static char const *const restrict search_devices[SEARCH_DEVICE_COUNT]={
@@ -62,9 +65,6 @@ static struct option const long_options[]={
 	{"help",no_argument,0,'h'},
 	{},
 };
-
-// SD_LISTEN_FDS_START, but we don't want to link to systemd
-static int const brightness_fd=3;
 
 static pthread_cond_t fader_cond;
 static pthread_mutex_t fader_mutex;
@@ -267,9 +267,9 @@ int main(int const argc,char *const *const argv){
 	}
 	
 	FILE *brightness_file;
-	if(!fcntl(brightness_fd,F_GETFD)){
+	if(!fcntl(BRIGHTNESS_FD,F_GETFD)){
 		// If systemd opened the brightness file for us, use that
-		brightness_file=fdopen(brightness_fd,"w");
+		brightness_file=fdopen(BRIGHTNESS_FD,"w");
 	}else{
 		// Otherwise try to open it ourselves
 		brightness_file=fopen(BRIGHTNESS_FILE_PATH,"w");
