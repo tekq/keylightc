@@ -63,6 +63,9 @@ static struct option const long_options[]={
 	{},
 };
 
+// SD_LISTEN_FDS_START, but we don't want to link to systemd
+static int brightness_fd=3;
+
 static pthread_cond_t fader_cond;
 static pthread_mutex_t fader_mutex;
 static int desired_brightness=0;
@@ -263,7 +266,14 @@ int main(int const argc,char *const *const argv){
 		}
 	}
 	
-	FILE *const brightness_file=fopen(BRIGHTNESS_FILE_PATH,"w");
+	FILE *brightness_file;
+	if(!fcntl(brightness_fd,F_GETFD)){
+		// If systemd opened the brightness file for us, use that
+		brightness_file=fdopen(brightness_fd,"w");
+	}else{
+		// Otherwise try to open it ourselves
+		brightness_file=fopen(BRIGHTNESS_FILE_PATH,"w");
+	}
 	if(brightness_file==NULL){
 		log_write(LOG_ERR,"Failed to open backlight device!  Check permissions and ensure you are running Linux kernel 6.11 or later.");
 		return EXIT_FAILURE;

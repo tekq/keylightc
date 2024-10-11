@@ -30,7 +30,6 @@ To install from source, clone the repository and run:
 ```shell
 $ make
 $ sudo make install
-$ sudo udevadm trigger -c add -s leds
 $ sudo systemctl enable --now keylightc.service
 ```
 
@@ -40,8 +39,7 @@ It uses kernel event data directly and does not have any dependency on a desktop
 
 ## Running
 
-Note that `keylightc` must either be run as root or the included `90-keylightc.rules` file placed in `/usr/lib/udev/rules.d`
-and `sudo udevadm trigger -c add -s leds` executed before `keylightc` is run as a user with the `input` group.
+Note that `keylightc` must either be run as root or using the included systemd unit.
 Using the .deb package or executing the source installation commands above sets this up for you.
 
 `keylightc` takes the following command-line arguments:

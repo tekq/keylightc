@@ -8,6 +8,7 @@ Type=exec
 ExecStart=/usr/bin/keylightc
 DynamicUser=yes
 SupplementaryGroups=input
+OpenFile=/sys/class/leds/chromeos\x3a\x3akbd_backlight/brightness
 Restart=on-failure
 RestartSec=1s
 
