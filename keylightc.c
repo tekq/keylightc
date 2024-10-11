@@ -64,7 +64,7 @@ static struct option const long_options[]={
 };
 
 // SD_LISTEN_FDS_START, but we don't want to link to systemd
-static int brightness_fd=3;
+static int const brightness_fd=3;
 
 static pthread_cond_t fader_cond;
 static pthread_mutex_t fader_mutex;
