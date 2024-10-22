@@ -314,37 +314,38 @@ int main(int const argc,char *const *const argv){
 			break;
 		}
 		
-		if(poll(found_device_pollfds,found_device_count,desired_brightness==configured_brightness?0:-1)==-1&&errno!=EINTR){
-			log_write(LOG_ERR,"Poll failure‽");
-			exit(EXIT_FAILURE);
-		}
-		
-		for(int device_index=0;device_index<found_device_count;device_index++){
-			if(found_device_pollfds[device_index].revents&POLLIN){
-				struct input_event input_events[512];
-				int read_bytes=read(found_device_pollfds[device_index].fd,input_events,sizeof(input_events));
-				if(read_bytes==-1&&errno!=EINTR){
-					log_write(LOG_ERR,"Read failure‽");
-					exit(EXIT_FAILURE);
-				}
-				
-				// The last event is always an EV_SYN, so start at the second-to-last and go backward…
-				for(int event_index=read_bytes/sizeof(struct input_event)-2;event_index>=0;event_index--){
-					// Looking for an event that is not EV_SYN or EV_LED…
-					if(input_events[event_index].type!=EV_SYN&&input_events[event_index].type!=EV_LED){
-						// If one is found, calculate candidate_off_time
-						struct timespec candidate_off_time;
-						candidate_off_time.tv_sec=input_events[event_index].input_event_sec+configured_on_sec;
-						candidate_off_time.tv_nsec=input_events[event_index].input_event_usec*NSEC_PER_USEC;
-						
-						// If candidate_off_time is later than off_time, update off_time
-						if(timespec_gt(candidate_off_time,off_time)){
-							off_time=candidate_off_time;
+		int poll_result=poll(found_device_pollfds,found_device_count,desired_brightness==configured_brightness?0:-1);
+		if(poll_result>0){
+			for(int device_index=0;device_index<found_device_count;device_index++){
+				if(found_device_pollfds[device_index].revents&POLLIN){
+					struct input_event input_events[512];
+					int read_bytes=read(found_device_pollfds[device_index].fd,input_events,sizeof(input_events));
+					if(read_bytes==-1&&errno!=EINTR){
+						log_write(LOG_ERR,"Read failure‽");
+						exit(EXIT_FAILURE);
+					}
+					
+					// The last event is always an EV_SYN, so start at the second-to-last and go backward…
+					for(int event_index=read_bytes/sizeof(struct input_event)-2;event_index>=0;event_index--){
+						// Looking for an event that is not EV_SYN or EV_LED…
+						if(input_events[event_index].type!=EV_SYN&&input_events[event_index].type!=EV_LED){
+							// If one is found, calculate candidate_off_time
+							struct timespec candidate_off_time;
+							candidate_off_time.tv_sec=input_events[event_index].input_event_sec+configured_on_sec;
+							candidate_off_time.tv_nsec=input_events[event_index].input_event_usec*NSEC_PER_USEC;
+							
+							// If candidate_off_time is later than off_time, update off_time
+							if(timespec_gt(candidate_off_time,off_time)){
+								off_time=candidate_off_time;
+							}
+							break;
 						}
-						break;
 					}
 				}
 			}
+		}else if(poll_result==-1&&errno!=EINTR){
+			log_write(LOG_ERR,"Poll failure‽");
+			exit(EXIT_FAILURE);
 		}
 		
 		struct timespec current_time;
