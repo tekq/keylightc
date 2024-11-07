@@ -284,7 +284,7 @@ int main(int const argc,char *const *const argv){
 	int const found_device_count=get_input_fds(found_device_pollfds);
 	if(found_device_count<1){
 		log_write(LOG_ERR,"No matching input devices found!  Check permissions.");
-		exit(EXIT_FAILURE);
+		return EXIT_FAILURE;
 	}
 	
 	log_write(LOG_INFO,"Backlight timeout: %d second%s",configured_on_sec,configured_on_sec!=1?"s":"");
@@ -322,7 +322,7 @@ int main(int const argc,char *const *const argv){
 					int read_bytes=read(found_device_pollfds[device_index].fd,input_events,sizeof(input_events));
 					if(read_bytes==-1&&errno!=EINTR){
 						log_write(LOG_ERR,"Read failure‽");
-						exit(EXIT_FAILURE);
+						return EXIT_FAILURE;
 					}
 					
 					// The last event is always an EV_SYN, so start at the second-to-last and go backward…
@@ -345,7 +345,7 @@ int main(int const argc,char *const *const argv){
 			}
 		}else if(poll_result==-1&&errno!=EINTR){
 			log_write(LOG_ERR,"Poll failure‽");
-			exit(EXIT_FAILURE);
+			return EXIT_FAILURE;
 		}
 		
 		struct timespec current_time;
