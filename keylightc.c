@@ -196,42 +196,41 @@ void *fader(void *const restrict arg){
 	
 	struct fader_config fader_config=*(struct fader_config*)arg;
 	int current_brightness=0;
-	int previous_desired_brightness=0;
+	int local_desired_brightness=0;
 	int fade_interval_nsec=0;
 	struct timespec next_fade_step_time={};
 	
 	int wait_result=0;
 	while(true){
-		if(current_brightness!=desired_brightness){
-			// If the current brightness is not the desired brightness…
-			if(wait_result==ETIMEDOUT){
-				// …and the next fade step is due, fade in/out
-				if(current_brightness>desired_brightness){
-					current_brightness--;
-				}else{
-					current_brightness++;
-				}
-				set_brightness(fader_config.brightness_file,current_brightness);
-				
-				// Calculate next_fade_step_time based on current next_fade_step_time and fade_interval_nsec
-				timespec_add_nsec(&next_fade_step_time,fade_interval_nsec);
-			}else if(previous_desired_brightness!=desired_brightness){
-				// If the fade step is not due and desired_brightness has changed, initialize the fade
-				clock_gettime(CLOCK_MONOTONIC,&next_fade_step_time);
-				fade_interval_nsec=fader_config.fade_duration_nsec/abs(current_brightness-desired_brightness);
-				previous_desired_brightness=desired_brightness;
-				
-				// Set wait_result to ETIMEDOUT directly and continue to skip the needless pthread_cond_timedwait() call
-				wait_result=ETIMEDOUT;
+		// If the current brightness is not the desired brightness…
+		if(wait_result==ETIMEDOUT){
+			// If the next fade step is due, fade in/out as appropriate
+			if(current_brightness>local_desired_brightness){
+				current_brightness--;
+			}else if(current_brightness<local_desired_brightness){
+				current_brightness++;
+			}else{
+				// Otherwise, wait to be signaled and skip back to the top
+				wait_result=pthread_cond_wait(&fader_cond,&fader_mutex);
 				continue;
 			}
+			set_brightness(fader_config.brightness_file,current_brightness);
 			
-			// Wait until next_fade_step_time (must be done here so spurious wakeups don't result in spinning)
-			wait_result=pthread_cond_timedwait(&fader_cond,&fader_mutex,&next_fade_step_time);
-		}else{
-			// Otherwise, wait to be signaled
-			wait_result=pthread_cond_wait(&fader_cond,&fader_mutex);
+			// Calculate next_fade_step_time based on current next_fade_step_time and fade_interval_nsec
+			timespec_add_nsec(&next_fade_step_time,fade_interval_nsec);
+		}else if(local_desired_brightness!=desired_brightness){
+			// If the fade step is not due and desired_brightness has changed, initialize the fade
+			clock_gettime(CLOCK_MONOTONIC,&next_fade_step_time);
+			fade_interval_nsec=fader_config.fade_duration_nsec/abs(current_brightness-desired_brightness);
+			local_desired_brightness=desired_brightness;
+			
+			// Set wait_result to ETIMEDOUT directly and continue to skip the needless pthread_cond_timedwait() call
+			wait_result=ETIMEDOUT;
+			continue;
 		}
+		
+		// Wait until next_fade_step_time (must be done here so spurious wakeups don't result in spinning)
+		wait_result=pthread_cond_timedwait(&fader_cond,&fader_mutex,&next_fade_step_time);
 	}
 }
 
