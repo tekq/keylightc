@@ -167,15 +167,6 @@ static int const string_to_int(int *const restrict result,int const min,int cons
 	return EXIT_FAILURE;
 }
 
-static void timespec_add_nsec(struct timespec *const restrict timespec,long const nsec){
-	timespec->tv_sec+=nsec/NSEC_PER_SEC;
-	timespec->tv_nsec+=nsec%NSEC_PER_SEC;
-	if(timespec->tv_nsec>=NSEC_PER_SEC){
-		timespec->tv_sec++;
-		timespec->tv_nsec-=NSEC_PER_SEC;
-	}
-}
-
 static bool const timespec_gt(struct timespec const ts1,struct timespec const ts2){
 	return (ts1.tv_sec>ts2.tv_sec)||(ts1.tv_sec==ts2.tv_sec&&ts1.tv_nsec>ts2.tv_nsec);
 }
@@ -214,7 +205,11 @@ void *fader(void *const restrict arg){
 				continue;
 			}else{
 				// If the fade isn't complete, calculate the next fade_step_time
-				timespec_add_nsec(&fade_step_time,fade_interval_nsec);
+				fade_step_time.tv_nsec+=fade_interval_nsec;
+				if(fade_step_time.tv_nsec>=NSEC_PER_SEC){
+					fade_step_time.tv_sec++;
+					fade_step_time.tv_nsec-=NSEC_PER_SEC;
+				}
 			}
 		}else if(local_desired_brightness!=desired_brightness){
 			// If the fade step is not due and desired_brightness has changed, calculate the start time, direction, and interval
