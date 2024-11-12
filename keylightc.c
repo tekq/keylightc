@@ -196,6 +196,7 @@ void *fader(void *const restrict arg){
 	while(true){
 		if(wait_result==ETIMEDOUT){
 			// If a fade step is due, calculate and set the brightness
+			fade_step:
 			current_brightness+=fade_increment;
 			set_brightness(fader_config.brightness_file,current_brightness);
 			
@@ -220,9 +221,7 @@ void *fader(void *const restrict arg){
 				fade_increment=1;
 			}
 			fade_interval_nsec=fader_config.fade_duration_nsec/abs(current_brightness-local_desired_brightness);
-			
-			// Set wait_result to ETIMEDOUT to trigger a fade step immediately
-			wait_result=ETIMEDOUT;
+			goto fade_step;
 		}else if(current_brightness==local_desired_brightness){
 			// Handle spurious wakeups while not in a fade, wait until signal
 			fade_start_wait:
