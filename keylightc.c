@@ -189,7 +189,6 @@ void *fader(void *const restrict arg){
 	int current_brightness=0;
 	int local_desired_brightness=0;
 	int fade_interval_nsec=0;
-	int fade_increment=0;
 	struct timespec fade_step_time={};
 	
 	int wait_result=0;
@@ -197,7 +196,7 @@ void *fader(void *const restrict arg){
 		if(wait_result==ETIMEDOUT){
 			// If a fade step is due, calculate and set the brightness
 			fade_step:
-			current_brightness+=fade_increment;
+			current_brightness+=current_brightness>local_desired_brightness?-1:1;
 			set_brightness(fader_config.brightness_file,current_brightness);
 			
 			// Either wait to be signaled for the next fade or calculate the next fade_step_time as appropriate
@@ -212,14 +211,9 @@ void *fader(void *const restrict arg){
 				goto fade_step_wait;
 			}
 		}else if(local_desired_brightness!=desired_brightness){
-			// If the fade step is not due and desired_brightness has changed, calculate the start time, direction, and interval
+			// If the fade step is not due and desired_brightness has changed, calculate the start time and interval
 			clock_gettime(CLOCK_MONOTONIC,&fade_step_time);
 			local_desired_brightness=desired_brightness;
-			if(current_brightness>local_desired_brightness){
-				fade_increment=-1;
-			}else{
-				fade_increment=1;
-			}
 			fade_interval_nsec=fader_config.fade_duration_nsec/abs(current_brightness-local_desired_brightness);
 			goto fade_step;
 		}else if(current_brightness==local_desired_brightness){
