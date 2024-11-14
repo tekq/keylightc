@@ -68,15 +68,12 @@ static struct option const long_options[]={
 
 static pthread_cond_t fader_cond;
 static pthread_mutex_t fader_mutex;
+static FILE *brightness_file;
+static int fade_duration_nsec=DEFAULT_FADE_DURATION_USEC*NSEC_PER_USEC;
 static int desired_brightness=0;
 
 static bool exit_requested=false;
 static bool is_daemon;
-
-struct fader_config{
-	FILE *const brightness_file;
-	int const fade_duration_nsec;
-};
 
 static void log_write(int const priority,char const *const restrict format,...){
 	va_list args;
@@ -144,7 +141,7 @@ static int const get_input_fds(struct pollfd *const restrict pollfds){
 	return found_device_count;
 }
 
-static void set_brightness(FILE *const restrict brightness_file,int const brightness){
+static void set_brightness(int const brightness){
 	fprintf(brightness_file,"%d",brightness);
 }
 
@@ -182,10 +179,9 @@ static int const usage(){
 	return EXIT_FAILURE;
 }
 
-void *fader(void *const restrict arg){
+void *fader(void*){
 	pthread_mutex_lock(&fader_mutex);
 	
-	struct fader_config fader_config=*(struct fader_config*)arg;
 	int current_brightness=0;
 	int local_desired_brightness=0;
 	int fade_interval_nsec=0;
@@ -197,7 +193,7 @@ void *fader(void *const restrict arg){
 			// If a fade step is due, calculate and set the brightness
 			fade_step:
 			current_brightness+=current_brightness>local_desired_brightness?-1:1;
-			set_brightness(fader_config.brightness_file,current_brightness);
+			set_brightness(current_brightness);
 			
 			// Either wait to be signaled for the next fade or calculate the next fade_step_time as appropriate
 			if(current_brightness==local_desired_brightness){
@@ -214,7 +210,7 @@ void *fader(void *const restrict arg){
 			// If the fade step is not due and desired_brightness has changed, calculate the start time and interval
 			clock_gettime(CLOCK_MONOTONIC,&fade_step_time);
 			local_desired_brightness=desired_brightness;
-			fade_interval_nsec=fader_config.fade_duration_nsec/abs(current_brightness-local_desired_brightness);
+			fade_interval_nsec=fade_duration_nsec/abs(current_brightness-local_desired_brightness);
 			goto fade_step;
 		}else if(current_brightness==local_desired_brightness){
 			// Handle spurious wakeups while not in a fade, wait until signal
@@ -233,7 +229,6 @@ int main(int const argc,char *const *const argv){
 	
 	int configured_on_sec=DEFAULT_ON_SEC;
 	int configured_brightness=DEFAULT_BRIGHTNESS;
-	int configured_fade_duration_nsec=DEFAULT_FADE_DURATION_USEC*NSEC_PER_USEC;
 	
 	int option;
 	while((option=getopt_long(argc,argv,"",long_options,NULL))!=EOF){
@@ -247,10 +242,10 @@ int main(int const argc,char *const *const argv){
 				}
 				break;
 			case 'f':
-				if(string_to_int(&configured_fade_duration_nsec,1,1000000,optarg)){
+				if(string_to_int(&fade_duration_nsec,1,1000000,optarg)){
 					return usage();
 				}
-				configured_fade_duration_nsec*=NSEC_PER_USEC;
+				fade_duration_nsec*=NSEC_PER_USEC;
 				break;
 			case 't':
 				if(string_to_int(&configured_on_sec,1,INT_MAX,optarg)){
@@ -263,7 +258,6 @@ int main(int const argc,char *const *const argv){
 		}
 	}
 	
-	FILE *brightness_file;
 	if(!fcntl(BRIGHTNESS_FD,F_GETFD)){
 		// If systemd opened the brightness file for us, use that
 		brightness_file=fdopen(BRIGHTNESS_FD,"w");
@@ -286,7 +280,7 @@ int main(int const argc,char *const *const argv){
 	
 	log_write(LOG_INFO,"Backlight timeout: %d second%s",configured_on_sec,configured_on_sec!=1?"s":"");
 	log_write(LOG_INFO,"Brightness level: %d%%",configured_brightness);
-	log_write(LOG_INFO,"Fade duration: %d microsecond%s",configured_fade_duration_nsec/NSEC_PER_USEC,configured_fade_duration_nsec/NSEC_PER_USEC!=1?"s":"");
+	log_write(LOG_INFO,"Fade duration: %d microsecond%s",fade_duration_nsec/NSEC_PER_USEC,fade_duration_nsec/NSEC_PER_USEC!=1?"s":"");
 	
 	pthread_condattr_t condattr;
 	pthread_condattr_init(&condattr);
@@ -295,7 +289,7 @@ int main(int const argc,char *const *const argv){
 	pthread_cond_init(&fader_cond,&condattr);
 	pthread_mutex_init(&fader_mutex,NULL);
 	pthread_t fader_thread;
-	pthread_create(&fader_thread,NULL,fader,&(struct fader_config){.brightness_file=brightness_file,.fade_duration_nsec=configured_fade_duration_nsec});
+	pthread_create(&fader_thread,NULL,fader,NULL);
 	
 	// Set up the exit handler
 	struct sigaction exit_action;
@@ -303,7 +297,7 @@ int main(int const argc,char *const *const argv){
 	sigaction(SIGINT,&exit_action,NULL);
 	sigaction(SIGTERM,&exit_action,NULL);
 	
-	set_brightness(brightness_file,0);
+	set_brightness(0);
 	
 	struct timespec off_time={};
 	while(true){
@@ -366,7 +360,7 @@ int main(int const argc,char *const *const argv){
 	
 	pthread_cancel(fader_thread);
 	pthread_join(fader_thread,NULL);
-	set_brightness(brightness_file,0);
+	set_brightness(0);
 	
 	return EXIT_SUCCESS;
 }
