@@ -44,7 +44,7 @@
 #define EVENT_DEVICE_FILENAME_PREFIX "event"
 
 #define BRIGHTNESS_FILE_PATH "/sys/class/leds/chromeos::kbd_backlight/brightness"
-#define DEFAULT_ON_SEC 10
+#define DEFAULT_TIMEOUT_SEC 10
 #define DEFAULT_BRIGHTNESS 30
 #define DEFAULT_FADE_DURATION_USEC 100000
 
@@ -174,7 +174,7 @@ static int const usage(){
 	log_write(LOG_NOTICE,"Options:");
 	log_write(LOG_NOTICE,"  --brightness\t\tbrightness level when active (1-100) [default=%d]",DEFAULT_BRIGHTNESS);
 	log_write(LOG_NOTICE,"  --fadeduration\tfade time in microseconds (1-1000000) [default=%d]",DEFAULT_FADE_DURATION_USEC);
-	log_write(LOG_NOTICE,"  --timeout\t\tactivity timeout in seconds (1-%d) [default=%d]",INT_MAX,DEFAULT_ON_SEC);
+	log_write(LOG_NOTICE,"  --timeout\t\tactivity timeout in seconds (1-%d) [default=%d]",INT_MAX,DEFAULT_TIMEOUT_SEC);
 	log_write(LOG_NOTICE,"  --help\t\tdisplay usage information");
 	return EXIT_FAILURE;
 }
@@ -184,8 +184,8 @@ void *fader(void*){
 	
 	int current_brightness=0;
 	int local_desired_brightness=0;
-	int fade_interval_nsec=0;
-	struct timespec fade_step_time={};
+	int fade_step_nsec=0;
+	struct timespec next_fade_step_time={};
 	
 	int wait_result=0;
 	while(true){
@@ -195,31 +195,31 @@ void *fader(void*){
 			current_brightness+=current_brightness>local_desired_brightness?-1:1;
 			set_brightness(current_brightness);
 			
-			// Either wait to be signaled for the next fade or calculate the next fade_step_time as appropriate
+			// Either wait to be signaled for the next fade or calculate next_fade_step_time as appropriate
 			if(current_brightness==local_desired_brightness){
 				goto fade_start_wait;
 			}else{
-				fade_step_time.tv_nsec+=fade_interval_nsec;
-				if(fade_step_time.tv_nsec>=NSEC_PER_SEC){
-					fade_step_time.tv_sec++;
-					fade_step_time.tv_nsec-=NSEC_PER_SEC;
+				next_fade_step_time.tv_nsec+=fade_step_nsec;
+				if(next_fade_step_time.tv_nsec>=NSEC_PER_SEC){
+					next_fade_step_time.tv_sec++;
+					next_fade_step_time.tv_nsec-=NSEC_PER_SEC;
 				}
 				goto fade_step_wait;
 			}
 		}else if(local_desired_brightness!=desired_brightness){
 			// If the fade step is not due and desired_brightness has changed, calculate the start time and interval
-			clock_gettime(CLOCK_MONOTONIC,&fade_step_time);
+			clock_gettime(CLOCK_MONOTONIC,&next_fade_step_time);
 			local_desired_brightness=desired_brightness;
-			fade_interval_nsec=fade_duration_nsec/abs(current_brightness-local_desired_brightness);
+			fade_step_nsec=fade_duration_nsec/abs(current_brightness-local_desired_brightness);
 			goto fade_step;
 		}else if(current_brightness==local_desired_brightness){
 			// Handle spurious wakeups while not in a fade, wait until signal
 			fade_start_wait:
 			wait_result=pthread_cond_wait(&fader_cond,&fader_mutex);
 		}else{
-			// Handle spurious wakeups while in a fade, wait until fade_step_time (or signal)
+			// Handle spurious wakeups while in a fade, wait until next_fade_step_time (or signal)
 			fade_step_wait:
-			wait_result=pthread_cond_timedwait(&fader_cond,&fader_mutex,&fade_step_time);
+			wait_result=pthread_cond_timedwait(&fader_cond,&fader_mutex,&next_fade_step_time);
 		}
 	}
 }
@@ -227,7 +227,7 @@ void *fader(void*){
 int main(int const argc,char *const *const argv){
 	is_daemon=!isatty(STDOUT_FILENO);
 	
-	int configured_on_sec=DEFAULT_ON_SEC;
+	int timeout_sec=DEFAULT_TIMEOUT_SEC;
 	int configured_brightness=DEFAULT_BRIGHTNESS;
 	
 	int option;
@@ -248,7 +248,7 @@ int main(int const argc,char *const *const argv){
 				fade_duration_nsec*=NSEC_PER_USEC;
 				break;
 			case 't':
-				if(string_to_int(&configured_on_sec,1,INT_MAX,optarg)){
+				if(string_to_int(&timeout_sec,1,INT_MAX,optarg)){
 					return usage();
 				}
 				break;
@@ -278,7 +278,7 @@ int main(int const argc,char *const *const argv){
 		return EXIT_FAILURE;
 	}
 	
-	log_write(LOG_INFO,"Backlight timeout: %d second%s",configured_on_sec,configured_on_sec!=1?"s":"");
+	log_write(LOG_INFO,"Backlight timeout: %d second%s",timeout_sec,timeout_sec!=1?"s":"");
 	log_write(LOG_INFO,"Brightness level: %d%%",configured_brightness);
 	log_write(LOG_INFO,"Fade duration: %d microsecond%s",fade_duration_nsec/NSEC_PER_USEC,fade_duration_nsec/NSEC_PER_USEC!=1?"s":"");
 	
@@ -322,7 +322,7 @@ int main(int const argc,char *const *const argv){
 						if(input_events[event_index].type!=EV_SYN&&input_events[event_index].type!=EV_LED){
 							// If one is found, calculate candidate_off_time
 							struct timespec candidate_off_time;
-							candidate_off_time.tv_sec=input_events[event_index].input_event_sec+configured_on_sec;
+							candidate_off_time.tv_sec=input_events[event_index].input_event_sec+timeout_sec;
 							candidate_off_time.tv_nsec=input_events[event_index].input_event_usec*NSEC_PER_USEC;
 							
 							// If candidate_off_time is later than off_time, update off_time
