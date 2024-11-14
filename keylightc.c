@@ -258,16 +258,13 @@ int main(int const argc,char *const *const argv){
 		}
 	}
 	
-	if(!fcntl(BRIGHTNESS_FD,F_GETFD)){
-		// If systemd opened the brightness file for us, use that
-		brightness_file=fdopen(BRIGHTNESS_FD,"w");
-	}else{
-		// Otherwise try to open it ourselves
-		brightness_file=fopen(BRIGHTNESS_FILE_PATH,"w");
-	}
-	if(brightness_file==NULL){
-		log_write(LOG_ERR,"Failed to open backlight device!  Check permissions and ensure you are running Linux kernel 6.11 or later.");
-		return EXIT_FAILURE;
+	// Try to open the systemd-provided brightness file
+	if(!(brightness_file=fdopen(BRIGHTNESS_FD,"w"))){
+		// If that didn't work, try to open it ourselves
+		if(!(brightness_file=fopen(BRIGHTNESS_FILE_PATH,"w"))){
+			log_write(LOG_ERR,"Failed to open backlight device!  Check permissions and ensure you are running Linux kernel 6.11 or later.");
+			return EXIT_FAILURE;
+		}
 	}
 	setvbuf(brightness_file,NULL,_IONBF,0);
 	
