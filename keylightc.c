@@ -81,10 +81,7 @@ static void log_write(int const priority,char const *const restrict format,...){
 	if(is_daemon){
 		vsyslog(priority,format,args);
 	}else{
-		FILE *target=stdout;
-		if(priority<LOG_WARNING){
-			target=stderr;
-		}
+		FILE *target=priority<LOG_WARNING?stderr:stdout;
 		vfprintf(target,format,args);
 		fprintf(target,"\n");
 	}
