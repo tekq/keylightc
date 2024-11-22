@@ -310,21 +310,21 @@ int main(int const argc,char *const *const argv){
 						return EXIT_FAILURE;
 					}
 					
-					// The last event is always an EV_SYN, so start at the second-to-last and go backward…
-					for(int event_index=read_bytes/sizeof(struct input_event)-2;event_index>=0;event_index--){
-						// Looking for an event that is not EV_SYN or EV_LED…
-						if(input_events[event_index].type!=EV_SYN&&input_events[event_index].type!=EV_LED){
-							// If one is found, calculate candidate_off_time
-							struct timespec candidate_off_time;
-							candidate_off_time.tv_sec=input_events[event_index].input_event_sec+timeout_sec;
-							candidate_off_time.tv_nsec=input_events[event_index].input_event_usec*NSEC_PER_USEC;
-							
-							// If candidate_off_time is later than off_time, update off_time
-							if(timespec_gt(candidate_off_time,off_time)){
-								off_time=candidate_off_time;
-							}
-							break;
+					// The events are in chronological order, so start at the end and go backwards…
+					for(int event_index=read_bytes/sizeof(struct input_event)-1;event_index>=0;event_index--){
+						// Looking for an event that is not EV_SYN SYN_REPORT or EV_LED…
+						if((input_events[event_index].type==EV_SYN&&input_events[event_index].code==SYN_REPORT)||input_events[event_index].type==EV_LED){
+							continue;
 						}
+						
+						// If one is found, calculate candidate_off_time and update off_time if off_time is older
+						struct timespec candidate_off_time;
+						candidate_off_time.tv_sec=input_events[event_index].input_event_sec+timeout_sec;
+						candidate_off_time.tv_nsec=input_events[event_index].input_event_usec*NSEC_PER_USEC;
+						if(timespec_gt(candidate_off_time,off_time)){
+							off_time=candidate_off_time;
+						}
+						break;
 					}
 				}
 			}
