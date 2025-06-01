@@ -6,6 +6,7 @@ StartLimitIntervalSec=500
 [Service]
 ExecStart=/usr/bin/keylightc
 DynamicUser=yes
+LogLevelMax=info
 OpenFile=/sys/class/leds/chromeos\x3a\x3akbd_backlight/brightness
 Restart=on-failure
 RestartSec=1s

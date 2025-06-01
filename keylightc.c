@@ -339,7 +339,7 @@ int main(int const argc,char *const *const argv){
 			// If the off_time is in the future
 			if(desired_brightness==0){
 				// And the backlight is currently off, turn it on
-				log_write(LOG_INFO,"Turning backlight on");
+				log_write(LOG_DEBUG,"Turning backlight on");
 				start_fade(configured_brightness);
 			}
 			
@@ -347,7 +347,7 @@ int main(int const argc,char *const *const argv){
 			clock_nanosleep(CLOCK_MONOTONIC,TIMER_ABSTIME,&off_time,NULL);
 		}else if(desired_brightness==configured_brightness){
 			// Otherwise, turn it off
-			log_write(LOG_INFO,"Turning backlight off");
+			log_write(LOG_DEBUG,"Turning backlight off");
 			start_fade(0);
 		}
 	}
