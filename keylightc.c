@@ -88,15 +88,15 @@ static void log_write(int const priority,char const *const restrict format,...){
 	va_end(args);
 }
 
-static void exit_handler(int const signal_number){
+static void exit_handler(__attribute__((unused)) int const signal_number){
 	exit_requested=true;
 }
 
-static int const is_event_device(struct dirent const *const restrict directory_entry){
+static int is_event_device(struct dirent const *const restrict directory_entry){
 	return strncmp(EVENT_DEVICE_FILENAME_PREFIX,directory_entry->d_name,5)==0;
 }
 
-static bool const string_in_array(char const *const restrict string,char const *const restrict array[],int const array_length){
+static bool string_in_array(char const *const restrict string,char const *const restrict array[],int const array_length){
 	for(int array_index=0;array_index<array_length;array_index++){
 		if(!strcmp(string,array[array_index])){
 			return true;
@@ -105,7 +105,7 @@ static bool const string_in_array(char const *const restrict string,char const *
 	return false;
 }
 
-static int const get_input_fds(struct pollfd *const restrict pollfds){
+static int get_input_fds(struct pollfd *const restrict pollfds){
 	struct dirent **device_name_list;
 	int const device_count=scandir(INPUT_DEVICE_DIRECTORY_PATH,&device_name_list,is_event_device,alphasort);
 	int const clock_type=CLOCK_MONOTONIC;
@@ -149,7 +149,7 @@ static void start_fade(int const brightness){
 	pthread_mutex_unlock(&fader_mutex);
 }
 
-static int const string_to_int(int *const restrict result,int const min,int const max,char const *const restrict string){
+static int string_to_int(int *const restrict result,int const min,int const max,char const *const restrict string){
 	errno=0;
 	long const long_value=strtol(string,NULL,10);
 	if(errno!=0){
@@ -161,11 +161,11 @@ static int const string_to_int(int *const restrict result,int const min,int cons
 	return EXIT_FAILURE;
 }
 
-static bool const timespec_gt(struct timespec const ts1,struct timespec const ts2){
+static bool timespec_gt(struct timespec const ts1,struct timespec const ts2){
 	return (ts1.tv_sec>ts2.tv_sec)||(ts1.tv_sec==ts2.tv_sec&&ts1.tv_nsec>ts2.tv_nsec);
 }
 
-static int const usage(){
+static int usage(){
 	log_write(LOG_NOTICE,"Usage: keylightc [--brightness <brightness>] [--fadeduration <fadeduration>] [--timeout <timeout>]");
 	log_write(LOG_NOTICE,"keylightc - automatic keyboard backlight daemon for Framework laptops");
 	log_write(LOG_NOTICE,"Options:");
