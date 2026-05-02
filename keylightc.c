@@ -317,9 +317,13 @@ int main(int const argc,char *const *const argv){
 							continue;
 						}
 						
-						// If one is found, update off_time
-						off_time.tv_sec=input_events[event_index].input_event_sec+timeout_sec;
-						off_time.tv_nsec=input_events[event_index].input_event_usec*NSEC_PER_USEC;
+						// If one is found, calculate candidate_off_time and update off_time if off_time is older
+						struct timespec candidate_off_time;
+						candidate_off_time.tv_sec=input_events[event_index].input_event_sec+timeout_sec;
+						candidate_off_time.tv_nsec=input_events[event_index].input_event_usec*NSEC_PER_USEC;
+						if(timespec_gt(candidate_off_time,off_time)){
+							off_time=candidate_off_time;
+						}
 						break;
 					}
 				}
