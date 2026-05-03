@@ -299,6 +299,8 @@ int main(int const argc,char *const *const argv){
 			break;
 		}
 		
+		// If the backlight is on, we just woke up from sleeping until off_time at the bottom of the loop, so return immediately and process any input from that time period
+		// If the backlight is off, sleep until new input occurs
 		int poll_result=poll(found_device_pollfds,found_device_count,desired_brightness==configured_brightness?0:-1);
 		if(poll_result>0){
 			for(int device_index=0;device_index<found_device_count;device_index++){
@@ -316,6 +318,7 @@ int main(int const argc,char *const *const argv){
 						// Looking for only interesting events (EV_MSC, EV_KEY, EV_ABS, and EV_SYN SYN_DROPPED (which may appear if the buffer overflows at just the wrong time))…
 						if(input_events[event_index].type==EV_MSC||input_events[event_index].type==EV_KEY||input_events[event_index].type==EV_ABS||(input_events[event_index].type==EV_SYN&&input_events[event_index].code==SYN_DROPPED)){
 							// If one is found, calculate candidate_off_time and update off_time if off_time is older
+							// This is necessary to ensure that older events from a latter device don't overwrite newer events from a former device
 							struct timespec candidate_off_time;
 							candidate_off_time.tv_sec=input_events[event_index].input_event_sec+timeout_sec;
 							candidate_off_time.tv_nsec=input_events[event_index].input_event_usec*NSEC_PER_USEC;
