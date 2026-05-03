@@ -310,8 +310,9 @@ int main(int const argc,char *const *const argv){
 						return EXIT_FAILURE;
 					}
 					
-					// The last event is always an EV_SYN (unless events were dropped), so start at the second-to-last and go backward…
-					for(int event_index=read_bytes/sizeof(struct input_event)-2;event_index>=0;event_index--){
+					// If more than one event was returned, the most recent event will be EV_SYN SYN_REPORT (unless events were dropped), so in that case start at the second-to-last and go backward so we see the actual event(s)…
+					int event_count=read_bytes/sizeof(struct input_event);
+					for(int event_index=event_count>=2?event_count-2:0;event_index>=0;event_index--){
 						// Looking for only interesting events (EV_MSC, EV_KEY, EV_ABS, and EV_SYN SYN_DROPPED (which may appear if the buffer overflows at just the wrong time))…
 						if(input_events[event_index].type==EV_MSC||input_events[event_index].type==EV_KEY||input_events[event_index].type==EV_ABS||(input_events[event_index].type==EV_SYN&&input_events[event_index].code==SYN_DROPPED)){
 							// If one is found, calculate candidate_off_time and update off_time if off_time is older
