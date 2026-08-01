@@ -5,6 +5,8 @@ RELEASE := $(VERSION).git$(COMMIT)
 
 .PHONY: srpm
 srpm:
+	which git || dnf install -y git
+
 	git archive --prefix=$(NAME)-$(VERSION)/ --format=tar.gz HEAD \
 		-o $(outdir)/$(NAME)-$(VERSION).tar.gz
 
