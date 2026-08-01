@@ -1,6 +1,6 @@
 Name:           keylightc
 Version:        0
-Release:        1.%{autorelease}
+Release:        1%{?dist}
 Summary:        Keyboard backlight daemon for Framework laptops
 
 License:        GPL-2.0-or-later
@@ -10,6 +10,7 @@ Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  gcc
 BuildRequires:  make
 BuildRequires:  glibc-devel
+BuildRequires:  systemd-rpm-macros
 
 Requires:       systemd
 %{?systemd_requires}
@@ -47,4 +48,5 @@ It has no runtime dependencies beyond glibc and the Linux kernel.
 %{_unitdir}/keylightc.service
 
 %changelog
-%autochangelog
+* Sat Aug 01 2026 asmx2 <hello@asmx2.dev> - 0-1
+- Initial packaging
