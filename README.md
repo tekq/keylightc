@@ -16,9 +16,8 @@ It is like [keylightd] except in C and with no dependencies!
 It is highly recommended to install a package if one is available.  Currently, a [PPA] is available for Ubuntu.  To set it up, run:
 
 ```shell
-$ sudo add-apt-repository ppa:mamarley/keylightc-git
-$ sudo apt update
-$ sudo apt install keylightc
+$ sudo dnf5 copr enable asmx2/keylightc
+$ sudo dnf5 install keylightc
 ```
 
 [PPA]: https://launchpad.net/~mamarley/+archive/ubuntu/keylightc-git
